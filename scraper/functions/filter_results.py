@@ -71,6 +71,22 @@ def extract_year_from_title(title: str) -> Optional[int]:
     
     return None
 
+
+def _is_real_nzb_season_pack(result: dict) -> bool:
+    """True for a single-NZB season/complete pack (unsafe for NZB streaming).
+
+    Virtual per-episode aggregates (is_nzb_season_pack=True) are safe and return False.
+    """
+    if result.get('is_nzb_season_pack'):
+        return False
+    if result.get('protocol') != 'nzb' and not result.get('nzb_url'):
+        return False
+    sei = (result.get('parsed_info') or {}).get('season_episode_info') or {}
+    season_pack = sei.get('season_pack', 'N/A')
+    episodes = sei.get('episodes') or []
+    return season_pack not in ('N/A', 'Unknown', None, '') or len(episodes) > 1
+
+
 def filter_results(
     results: List[Dict[str, Any]], tmdb_id: str, title: str, year: int, content_type: str,
     season: int, episode: int, multi: bool, version_settings: Dict[str, Any],
@@ -1110,6 +1126,17 @@ def filter_results(
                         season_episode_info['episodes'] = []
                         # logging.debug("Complete pack detected but season_episode_counts is empty. Setting seasons/episodes to empty.")
                     result['parsed_info']['season_episode_info'] = season_episode_info
+
+                # Exclude real single-NZB season packs when setting is off (torrent packs and
+                # virtual per-episode NZB aggregates are unaffected).
+                if not get_setting('Scraping', 'include_nzb_season_packs', True):
+                    if _is_real_nzb_season_pack(result):
+                        result['filter_reason'] = "NZB season pack excluded by include_nzb_season_packs setting"
+                        logging.info(
+                            f"Rejected: NZB season pack excluded by setting for '{original_title}' "
+                            f"(Size: {result.get('size', 0):.2f}GB)"
+                        )
+                        continue
                 
                 if multi:
                     #logging.debug(f"Multi-episode mode: season={season}, season_pack={season_episode_info.get('season_pack')}, seasons={season_episode_info.get('seasons')}")

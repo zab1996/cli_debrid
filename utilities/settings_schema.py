@@ -552,6 +552,11 @@ SETTINGS_SCHEMA = {
             "description": "Filter out releases marked as trash by the parser. These are typically low-quality or badly formatted releases.",
             "default": True
         },
+        "include_nzb_season_packs": {
+            "type": "boolean",
+            "description": "Include single-NZB season/complete packs when scraping and scoring NZB results. Turn off to prefer individual episode NZBs only — a single broken file in a season pack can cause the entire pack to be deleted. Torrent season packs and virtual per-episode NZB packs (aggregated individual episodes) are unaffected.",
+            "default": True
+        },
         "minimum_scrape_score": {
             "type": "float",
             "description": "Minimum calculated score for a scraped result to be considered. Scores are calculated based on version weights. Set to 0.0 to disable this filter (accept any score).",
