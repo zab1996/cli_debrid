@@ -681,6 +681,25 @@ def _delete_from_provider(info_hash: str, entry_name: str) -> bool:
         return False
 
 
+def _delete_health_record(entry_name: str) -> bool:
+    """Delete the provider's health record for a no-hash orphan by name.
+
+    remove_nzb/_exact both require an info_hash, so orphans whose hash never
+    resolved (e.g. cli_mount entries where resolve_job_id came up empty)
+    previously had no cleanup path at all — they'd get logged as 'not_found'
+    on every repair sweep forever. This clears the underlying health record
+    directly by name so the entry stops reappearing.
+    """
+    try:
+        result = _client().delete_entry_health(entry_name)
+        if not result:
+            logger.warning(f'[NZBRepair] Health record deletion returned False for {entry_name!r}')
+        return result
+    except Exception as e:
+        logger.warning(f'[NZBRepair] Health record deletion error for {entry_name!r}: {e}')
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Plex deletion
 # ---------------------------------------------------------------------------
@@ -1574,7 +1593,8 @@ def _run_repair_inner(triggered_by: str = 'scheduled', version_override: str = N
                     logger.warning(f'[NZBRepair] No repairable DB items for {entry_name!r} — orphan, deleting from provider')
                     _delete_from_provider(info_hash, entry_name)
                 else:
-                    logger.debug(f'[NZBRepair] No repairable DB items for {entry_name!r} — orphan with no hash, skipping provider delete')
+                    logger.warning(f'[NZBRepair] No repairable DB items for {entry_name!r} — orphan with no hash, deleting health record')
+                    _delete_health_record(entry_name)
                 log_repair_activity(
                     broken_nzb_id=info_hash or entry_name,
                     broken_nzb_title=entry_name,

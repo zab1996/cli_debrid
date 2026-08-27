@@ -852,6 +852,15 @@ class NzbdavClient:
         """Legacy wrapper — returns None for nzbdav (no user-driven health-API)."""
         return None
 
+    def delete_entry_health(self, entry_name: str) -> bool:
+        """No-op for nzbdav — there is no separate health-record store to clear
+        (fetch_broken_items reads live history slots, which always carry a
+        resolvable nzo_id, so repair_engine's no-hash orphan path never hits
+        this for nzbdav in practice). Returns True so callers don't treat the
+        missing capability as a failure.
+        """
+        return True
+
     # -- repair-support (history-based) -------------------------------------
     # nzbdav has NO /api/repair endpoint. The only failure signal it exposes is
     # history slots with status='Failed' (download-time NNTP failures, or items

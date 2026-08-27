@@ -727,6 +727,28 @@ class CliMountClient:
             return self.poll_health_result(entry_name)
         return None
 
+    def delete_entry_health(self, entry_name: str) -> bool:
+        """
+        DELETE the cli_mount EntryHealth record for entry_name (no info_hash
+        needed — this is name-keyed). Used for orphan health entries that have
+        no resolvable hash and so can't go through remove_nzb/_exact; without
+        this, those entries just get re-reported as 'not_found' every sweep
+        forever since nothing ever clears the underlying health record.
+        A 404 counts as success (already gone).
+        """
+        if not self.is_enabled() or not entry_name:
+            return False
+        import urllib.parse
+        encoded = urllib.parse.quote(entry_name, safe='')
+        status, err = _delete_status(
+            f'{self.base_url}/api/repair/health/{encoded}',
+            headers=self._headers(), timeout=10,
+        )
+        if status in (200, 204, 404):
+            return True
+        logging.warning(f'[cli_mount] delete_entry_health failed for {entry_name!r}: status={status} err={err}')
+        return False
+
     # -- repair-support (climount /api/repair/* + /api/torrents) ------------
     # Provider-agnostic repair interface (mirrored by NzbdavClient). Lets
     # repair_engine delegate instead of issuing raw HTTP itself.

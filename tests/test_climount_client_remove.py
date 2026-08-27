@@ -110,5 +110,41 @@ class TestRemoveNzb(unittest.TestCase):
         self.assertEqual(calls, [primary, fallback])
 
 
+class TestDeleteEntryHealth(unittest.TestCase):
+    def test_200_is_success(self):
+        url = 'http://x:8383/api/repair/health/Some.Release.Name'
+        m, calls = _load(status_map={url: 200})
+        client = m.CliMountClient()
+        self.assertTrue(client.delete_entry_health('Some.Release.Name'))
+        self.assertEqual(calls, [url])
+
+    def test_404_is_treated_as_already_gone(self):
+        url = 'http://x:8383/api/repair/health/Some.Release.Name'
+        m, _ = _load(status_map={url: 404})
+        client = m.CliMountClient()
+        self.assertTrue(client.delete_entry_health('Some.Release.Name'))
+
+    def test_500_is_failure(self):
+        url = 'http://x:8383/api/repair/health/Some.Release.Name'
+        m, _ = _load(status_map={url: 500})
+        client = m.CliMountClient()
+        self.assertFalse(client.delete_entry_health('Some.Release.Name'))
+
+    def test_empty_entry_name_short_circuits(self):
+        m, calls = _load(status_map={})
+        client = m.CliMountClient()
+        self.assertFalse(client.delete_entry_health(''))
+        self.assertEqual(calls, [])
+
+    def test_name_is_url_encoded(self):
+        # entry names commonly contain spaces/brackets — must reach the
+        # provider as a single path segment, not get split or mangled.
+        url = 'http://x:8383/api/repair/health/Some%20Release%20%5B2024%5D'
+        m, calls = _load(status_map={url: 200})
+        client = m.CliMountClient()
+        self.assertTrue(client.delete_entry_health('Some Release [2024]'))
+        self.assertEqual(calls, [url])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
