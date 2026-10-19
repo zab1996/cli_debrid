@@ -1,4 +1,4 @@
-name: Fork test image
+name: Test image (ghcr)
 
 # Builds a test image from any branch of this fork and pushes it to
 # ghcr.io/zab1996/cli_debrid:<tag>. Fork-only: uses the repo's own
