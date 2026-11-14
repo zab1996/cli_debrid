@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="counts">
+  {% for s in states %}
+  <div class="count"><div class="n">{{ counts[s] }}</div><div class="label">{{ s }}</div></div>
+  {% endfor %}
+</section>
+
+<h2>Recent activity</h2>
+{% if events %}
+<ul class="events">
+  {% for e in events %}
+  <li><span class="when">{{ e.at | ago }}</span> {{ e.message }}</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">Nothing yet.</p>
+{% endif %}
+{% endblock %}

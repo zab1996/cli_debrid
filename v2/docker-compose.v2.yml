@@ -1,0 +1,10 @@
+# Isolated v2 instance. Separate port and data dir from the live stack.
+services:
+  cli_debrid_v2:
+    build: .
+    container_name: cli_debrid_v2
+    ports:
+      - "5060:5060"
+    volumes:
+      - ${CLID2_DATA_DIR:-./data}:/data
+    restart: unless-stopped
