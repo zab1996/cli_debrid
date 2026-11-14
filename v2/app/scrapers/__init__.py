@@ -84,7 +84,7 @@ async def search_one(idx: IndexerConfig, q: Query) -> list[Release]:
         log.warning("[indexer %s] search failed for %s: %s: %s", label(idx), _qlabel(q),
                     type(e).__name__, e)
         return []
-    log.debug("[indexer %s] %d results for %s in %.1fs", label(idx), len(out), _qlabel(q),
+    log.info("[indexer %s] %d results for %s in %.1fs", label(idx), len(out), _qlabel(q),
               time.monotonic() - started)
     return out
 

@@ -79,6 +79,11 @@ async def streams() -> dict:
     return await _call("GET", "/streams") or {}
 
 
+async def queue(limit: int = 300) -> dict:
+    """cli_mount queue page data: entries being added, newest mount entries, totals."""
+    return await _call("GET", "/queue", params={"limit": limit}) or {}
+
+
 async def cached(hashes: list[str]) -> dict[str, bool]:
     if not hashes:
         return {}

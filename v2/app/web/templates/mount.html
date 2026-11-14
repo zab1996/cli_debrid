@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head"><h1>Mount</h1><span class="muted small" id="mUpdated">Loading…</span></div>
+
+<div class="topbar" id="mStats"></div>
+<div id="mErr"></div>
+
+<div class="box" id="mProvBox" hidden>
+  <h3>Usenet providers</h3>
+  <table class="list"><thead><tr><th>Provider</th><th>Connections</th><th class="hide-sm">Idle</th></tr></thead>
+    <tbody id="mProv"></tbody></table>
+</div>
+
+<div class="box">
+  <h3>Being added <span class="count" id="mActiveCount"></span></h3>
+  <div id="mActive"><div class="empty"><span class="spinner"></span></div></div>
+</div>
+
+<div class="box">
+  <h3>In the mount <span class="count" id="mEntryCount"></span></h3>
+  <div class="bulkbar rel-filters">
+    <input id="mText" placeholder="Filter by name, group, title…" style="flex:1;min-width:180px">
+    <select id="mProto"><option value="">Torrent + usenet</option><option value="torrent">Torrent</option><option value="nzb">Usenet</option></select>
+    <label class="check" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="mOrphans"> Only unused</label>
+  </div>
+  <div id="mEntries"><div class="empty"><span class="spinner"></span></div></div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const size = (b) => !b ? '–' : b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB';
+  const speed = (b) => !b ? '' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB/s' : (b / 1e3).toFixed(0) + ' KB/s';
+  const ago = (t) => { if (!t) return ''; const s = Date.now() / 1000 - t;
+    return s < 3600 ? Math.max(1, Math.round(s / 60)) + 'm ago' : s < 86400 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago'; };
+  const proto = (p) => `<span class="proto ${p}">${p === 'nzb' ? 'usenet' : 'torrent'}</span>`;
+  const badges = (name) => (window.sceneBadges && sceneBadges(name)) || '';
+  const owners = (r) => r.items.length
+    ? r.items.slice(0, 3).map(i => `<a href="/item/${i.id}">${esc(i.label)}</a>`).join(', ') + (r.items.length > 3 ? ` +${r.items.length - 3}` : '')
+    : '<span class="muted">not used by the library</span>';
+  const pill = (label, val, cls = '') => `<span class="tb-pill">${cls ? `<span class="dot ${cls}"></span>` : ''}${label}: <span class="tb-val">${val}</span></span>`;
+
+  let data = null;
+  let sort = { key: 'added', dir: -1 };
+  const firstDir = { name: 1, size: -1, added: -1 };
+
+  function renderTop() {
+    const d = data, u = d.usenet;
+    $('mStats').innerHTML = pill('Entries', d.total) + pill('Size', size(d.total_size)) + pill('Streams', d.streams)
+      + (u ? pill('Connections', `${u.active} / ${u.max}`) : '') + (d.bad ? pill('Bad', d.bad, 'bad') : '');
+    const provs = d.usenet_providers || [];
+    $('mProvBox').hidden = !provs.length;
+    $('mProv').innerHTML = provs.map(p => {
+      const pct = p.max_connections ? Math.round(100 * p.active / p.max_connections) : 0;
+      return `<tr><td class="mono">${esc(p.host)}</td>
+        <td><div class="pbar"><div style="width:${pct}%"></div></div><span class="mono small">${p.active} / ${p.max_connections}</span></td>
+        <td class="mono hide-sm">${p.idle ?? ''}</td></tr>`;
+    }).join('');
+    const act = d.active || [];
+    $('mActiveCount').textContent = act.length || '';
+    $('mActive').innerHTML = !act.length ? '<div class="empty">Nothing is being added right now.</div>'
+      : '<table class="list"><thead><tr><th>Name</th><th class="hide-sm">Size</th><th>Progress</th><th class="hide-sm">Source</th></tr></thead><tbody>'
+        + act.map(r => `<tr><td><div class="rname">${esc(r.name)}</div><div class="rtags">${badges(r.name)}</div>
+            <div class="small" style="margin-top:4px">${owners(r)}</div>${r.error ? `<div class="small bad">${esc(r.error)}</div>` : ''}</td>
+          <td class="mono hide-sm">${size(r.size)}</td>
+          <td style="min-width:140px"><div class="pbar ${r.status}"><div style="width:${Math.min(100, r.progress || 0)}%"></div></div>
+            <span class="mono small">${r.status} ${Math.round(r.progress || 0)}%${r.speed ? ' · ' + speed(r.speed) : ''}</span></td>
+          <td class="small hide-sm">${proto(r.protocol)}${r.provider ? `<br><span class="muted">${esc(r.provider)}</span>` : ''}${r.seeders ? ` · ${r.seeders} seeds` : ''}</td></tr>`).join('')
+        + '</tbody></table>';
+  }
+
+  function renderEntries() {
+    if (!data) return;
+    const text = $('mText').value.toLowerCase(), p = $('mProto').value, orphans = $('mOrphans').checked;
+    let rows = (data.entries || []).filter(r => (!p || r.protocol === p) && (!orphans || !r.items.length)
+      && (!text || r.name.toLowerCase().includes(text) || r.items.some(i => i.label.toLowerCase().includes(text))));
+    const d = sort.dir;
+    const by = { name: (a, b) => d * a.name.localeCompare(b.name), size: (a, b) => d * (a.size - b.size), added: (a, b) => d * (a.added_on - b.added_on) };
+    rows.sort(by[sort.key]);
+    const shown = (data.entries || []).length;
+    $('mEntryCount').textContent = data.total > shown ? `newest ${shown} of ${data.total}` : `${data.total}`;
+    const th = (key, label, cls = '') => `<th class="sortable ${cls}${sort.key === key ? ' sorted' : ''}" data-sort="${key}">${label}` +
+      `<span class="arrow">${sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : '↕'}</span></th>`;
+    $('mEntries').innerHTML = !rows.length ? '<div class="empty">Nothing matches.</div>'
+      : `<table class="list"><thead><tr>${th('name', 'Name')}${th('size', 'Size', 'hide-sm')}<th class="hide-sm">Source</th>${th('added', 'Added')}</tr></thead><tbody>`
+        + rows.map(r => `<tr class="${r.bad ? 'rejected' : ''}"><td><div class="rname">${esc(r.name)}</div><div class="rtags">${badges(r.name)}${r.bad ? '<span class="rtag bad">bad</span>' : ''}</div>
+            <div class="small" style="margin-top:4px">${owners(r)}</div></td>
+          <td class="mono hide-sm">${size(r.size)}</td>
+          <td class="small hide-sm">${proto(r.protocol)}${r.provider ? `<br><span class="muted">${esc(r.provider)}</span>` : ''}</td>
+          <td class="mono small">${ago(r.added_on)}</td></tr>`).join('') + '</tbody></table>';
+  }
+
+  async function load() {
+    try {
+      const r = await fetch('/api/mount');
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.statusText);
+      data = d;
+      $('mErr').innerHTML = '';
+      renderTop(); renderEntries();
+      $('mUpdated').textContent = 'Refreshes every 5s · updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      $('mErr').innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
+    }
+  }
+  document.addEventListener('click', (e) => {
+    const h = e.target.closest('th[data-sort]');
+    if (!h) return;
+    const key = h.dataset.sort;
+    sort = sort.key === key ? { key, dir: -sort.dir } : { key, dir: firstDir[key] };
+    renderEntries();
+  });
+  ['mText', 'mProto', 'mOrphans'].forEach(id => $(id).addEventListener('input', renderEntries));
+  load();
+  setInterval(() => { if (!document.hidden) load(); }, 5000);
+})();
+</script>
+{% endblock %}

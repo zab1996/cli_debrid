@@ -29,9 +29,9 @@ def plex_path(local: str) -> str:
     return local
 
 
-async def sections() -> list[tuple[str, str]]:
+async def sections(fresh: bool = False) -> list[tuple[str, str]]:
     global _sections
-    if _sections and time.time() - _sections[0] < SECTIONS_TTL:
+    if not fresh and _sections and time.time() - _sections[0] < SECTIONS_TTL:
         return _sections[1]
     base = config.get().plex.url.rstrip("/")
     data = await http.get_json(f"{base}/library/sections", headers=_headers())
@@ -43,18 +43,27 @@ async def sections() -> list[tuple[str, str]]:
     return out
 
 
+def _section_for(path: str, secs: list[tuple[str, str]]) -> tuple[str, str] | None:
+    best = None
+    for key, loc in secs:
+        if path == loc or path.startswith(loc + "/"):
+            if best is None or len(loc) > len(best[1]):
+                best = (key, loc)
+    return best
+
+
 async def scan(local_dir: str) -> bool:
     """Partial scan of one folder. Returns False if no section covers it."""
     if not enabled():
         return False
     path = plex_path(local_dir).rstrip("/")
-    best = None
-    for key, loc in await sections():
-        if path == loc or path.startswith(loc + "/"):
-            if best is None or len(loc) > len(best[1]):
-                best = (key, loc)
+    best = _section_for(path, await sections())
     if not best:
-        log.warning("no Plex library covers %s", path)
+        # A library added since the last lookup shouldn't wait out the cache.
+        best = _section_for(path, await sections(fresh=True))
+    if not best:
+        log.warning("Plex scan skipped: no Plex library folder contains %s (add the movies/shows"
+                    " symlink folder to a Plex library, or set plex_path_map if Plex sees another path)", path)
         return False
     base = config.get().plex.url.rstrip("/")
     resp = await http.request("GET", f"{base}/library/sections/{best[0]}/refresh",

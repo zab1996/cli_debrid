@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /status", s.status)
 	mux.HandleFunc("GET /cache", s.cache)
 	mux.HandleFunc("GET /streams", s.streams)
+	mux.HandleFunc("GET /queue", s.queue)
 	mux.HandleFunc("POST /add", s.add)
 	mux.HandleFunc("GET /entries/{id}", s.getEntry)
 	mux.HandleFunc("DELETE /entries/{id}", s.deleteEntry)
@@ -153,6 +155,72 @@ func (s *Server) streams(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(streams, func(i, j int) bool { return streams[i].StartedAt > streams[j].StartedAt })
 	out := map[string]any{"streams": streams}
 	if us := s.mgr.UsenetStats(); us != nil {
+		if pool, ok := us["pool"].(map[string]interface{}); ok {
+			out["usenet"] = map[string]any{"active": pool["active"], "max": pool["max_connections"]}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type queueRow struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Protocol string  `json:"protocol"`
+	Status   string  `json:"status"`
+	Progress float64 `json:"progress"`
+	Speed    int64   `json:"speed"`
+	Size     int64   `json:"size"`
+	Provider string  `json:"provider,omitempty"`
+	Seeders  int     `json:"seeders,omitempty"`
+	AddedOn  int64   `json:"added_on"`
+	Error    string  `json:"error,omitempty"`
+	Bad      bool    `json:"bad,omitempty"`
+}
+
+// GET /queue?limit=N -> what cli_mount's queue page shows, read-only: entries
+// still being added, the newest N entries in the mount, totals, and per
+// usenet provider connection use.
+func (s *Server) queue(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	active := []queueRow{}
+	for _, e := range s.mgr.Queue().ListFilter("", config.ProtocolAll, "", nil, "added_on", true) {
+		j := s.toJSON(e)
+		size := e.Size
+		if size == 0 {
+			size = e.Bytes
+		}
+		active = append(active, queueRow{ID: e.InfoHash, Name: e.Name, Protocol: string(e.Protocol),
+			Status: j.Status, Progress: j.Progress, Speed: e.Speed, Size: size, Provider: e.ActiveProvider,
+			Seeders: e.Seeders, AddedOn: e.AddedOn.Unix(), Error: e.LastError, Bad: e.Bad})
+	}
+	var lib []queueRow
+	var totalSize int64
+	bad := 0
+	_ = s.mgr.Storage().ForEachMeta(func(m *storage.EntryMetaInfo) error {
+		totalSize += m.Size
+		status := "ready"
+		if m.Bad {
+			bad++
+			status = "error"
+		}
+		lib = append(lib, queueRow{ID: m.InfoHash, Name: m.Name, Protocol: m.Protocol, Status: status,
+			Progress: 100, Size: m.Size, Provider: m.Provider, AddedOn: m.AddedOn.Unix(), Bad: m.Bad})
+		return nil
+	})
+	total := len(lib)
+	sort.Slice(lib, func(i, j int) bool { return lib[i].AddedOn > lib[j].AddedOn })
+	if len(lib) > limit {
+		lib = lib[:limit]
+	}
+	out := map[string]any{
+		"active": active, "entries": lib, "total": total, "total_size": totalSize, "bad": bad,
+		"streams": len(s.mgr.GetActiveStreams()),
+	}
+	if us := s.mgr.UsenetStats(); us != nil {
+		out["usenet_providers"] = us["providers"]
 		if pool, ok := us["pool"].(map[string]interface{}); ok {
 			out["usenet"] = map[string]any{"active": pool["active"], "max": pool["max_connections"]}
 		}

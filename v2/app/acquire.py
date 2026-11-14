@@ -31,6 +31,8 @@ UPGRADE_MARGIN = 5.0       # an upgrade must beat the current score by this much
 TIMEOUT = {"torrent": 6 * 3600, "nzb": 2 * 3600}
 VANISH_GRACE = 300         # an engine id that never appears is failed after this
 
+_progress: dict[str, tuple[str, int]] = {}   # engine id -> (status, 25% bucket) last logged
+
 
 # ------------------------------------------------------------------ search
 
@@ -106,10 +108,12 @@ async def _run_season(db: DB, job: search.Job) -> bool:
        SWEEP_FALLBACK per sweep; the rest wait for the next round.
     """
     tag = search.job_tag(job)
+    log.info("%s season search for %d wanted episodes: %s", tag, len(job.items),
+             ", ".join(f"E{it.episode:02d}" for it in job.items))
     raw = await search.fetch(db, job)
     cfg = config.get()
     if cfg.debrid.provider and cfg.debrid.api_key:
-        packs = search.rank_copy(db, raw, job.query, job.items)
+        packs = search.rank_copy(db, raw, job.query, job.items, tag=tag + " packs:")
         if packs:
             await _mark_cached(packs, job.query)
             if await _try_candidates(db, job.items, packs, tag, job.label):
@@ -117,7 +121,7 @@ async def _run_season(db: DB, job: search.Job) -> bool:
     matched, leftovers = 0, []
     for it in job.items:
         q = search.query_for(db, it)
-        cands = search.rank_copy(db, raw, q, [it])
+        cands = search.rank_copy(db, raw, q, [it], tag=it.tag + " from season results:")
         if cands:
             await _mark_cached(cands, q)
             if await _try_candidates(db, [it], cands, it.tag, it.label):
@@ -127,9 +131,11 @@ async def _run_season(db: DB, job: search.Job) -> bool:
     log.info("%s season search (%d results) covered %d of %d episodes; %d left", tag, len(raw),
              matched, len(job.items), len(leftovers))
     for it in leftovers[:SWEEP_FALLBACK]:
+        log.info("%s not in the season results; searching it on its own", it.tag)
         if await run_job(db, search.Job(search.query_for(db, it), [it])):
             matched += 1
     for it in leftovers[SWEEP_FALLBACK:]:
+        log.info("%s over this round's %d single-search limit; next round", it.tag, SWEEP_FALLBACK)
         _nothing_found(db, db.get_item(it.id) or it)
     return matched > 0
 
@@ -289,8 +295,7 @@ async def _finish(db: DB, items: list[Item], st: engine.EntryStatus) -> None:
         db.set_state(it.id, State.DONE, file_path=path, done_at=time.time(), mode=None,
                      prev_engine_id=None, attempts=0, downloading_since=None)
         log.info("%s Done: %s -> %s", it.tag, f.name, path)
-        scan_dirs.add(str(symlink.folder_for(it, config.get().library))
-                      if config.get().library.mode == "symlink" else path.rsplit("/", 1)[0])
+        scan_dirs.add(path.rsplit("/", 1)[0])
     done = [it for it in items if it.id in found]
     if done:
         db.log_event(f"Ready: {done[0].label}" + (f" (+{len(done) - 1} more)" if len(done) > 1 else ""))
@@ -306,7 +311,8 @@ async def _finish(db: DB, items: list[Item], st: engine.EntryStatus) -> None:
     for d in scan_dirs:
         try:
             ok = await plex.scan(d)
-            log.info("Plex scan %s: %s", "requested" if ok else "skipped", d)
+            if ok:
+                log.info("Plex scan requested: %s", d)
         except Exception as e:
             log.warning("Plex scan of %s failed: %s", d, e)
 
@@ -337,6 +343,19 @@ async def _fail(db: DB, items: list[Item], engine_id: str, why: str) -> None:
             pass
 
 
+def _log_progress(items: list[Item], engine_id: str, st: engine.EntryStatus, age: float) -> None:
+    """Log a download when its status changes or it passes another 25%."""
+    step = (st.status, int(st.progress // 25) if st.status != "ready" else 4)
+    if _progress.get(engine_id) == step:
+        return
+    _progress[engine_id] = step
+    if st.status in ("ready", "error"):
+        _progress.pop(engine_id, None)
+    tag = items[0].tag if len(items) == 1 else f"[items {','.join(str(i.id) for i in items)}]"
+    log.info("%s [download %s] %s %.0f%% after %ds (%s)", tag, engine_id, st.status, st.progress,
+             int(age), st.name or "?")
+
+
 async def check_downloads(db: DB) -> None:
     groups: dict[str, list[Item]] = {}
     for it in db.items_in(State.DOWNLOADING, limit=500):
@@ -356,8 +375,7 @@ async def check_downloads(db: DB) -> None:
             if now - since > VANISH_GRACE:
                 await _fail(db, items, engine_id, "download disappeared")
             continue
-        if st.status != "ready":
-            log.debug("[download %s] %s %.0f%%", engine_id, st.status, st.progress)
+        _log_progress(items, engine_id, st, now - since)
         if st.status == "ready":
             await _finish(db, items, st)
         elif st.status == "error":

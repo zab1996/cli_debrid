@@ -190,6 +190,40 @@ def queues(request: Request):
     return render(request, "queues.html", sections=sections)
 
 
+# ------------------------------------------------------------------ mount
+
+
+@router.get("/mount", response_class=HTMLResponse)
+def mount_page(request: Request):
+    return render(request, "mount.html")
+
+
+@router.get("/api/mount")
+async def api_mount(request: Request):
+    """Read-only view of the engine's queue (a lite cli_mount queue page)."""
+    try:
+        q = await asyncio.wait_for(engine.queue(300), 5)
+    except Exception as e:
+        return JSONResponse({"error": f"engine unavailable: {e}"}, status_code=503)
+    # The engine's queue keeps finished entries; those are listed under "in the mount".
+    q["active"] = [r for r in q.get("active") or [] if r.get("status") != "ready"]
+    ids = {r["id"].lower() for r in q["active"] + (q.get("entries") or [])}
+    owners: dict[str, list[dict]] = {}
+    if ids:
+        db = request.app.state.db
+        rows = db.query("SELECT id, kind, title, year, season, episode, state, engine_id, prev_engine_id"
+                        " FROM items WHERE engine_id IS NOT NULL OR prev_engine_id IS NOT NULL")
+        for r in rows:
+            for eid in (r["engine_id"], r["prev_engine_id"]):
+                if eid and eid.lower() in ids:
+                    label = (f"{r['title']} S{r['season']:02d}E{r['episode']:02d}" if r["kind"] == "episode"
+                             else f"{r['title']} ({r['year']})" if r["year"] else r["title"])
+                    owners.setdefault(eid.lower(), []).append({"id": r["id"], "label": label, "state": r["state"]})
+    for r in (q.get("active") or []) + (q.get("entries") or []):
+        r["items"] = owners.get(r["id"].lower(), [])
+    return q
+
+
 # ------------------------------------------------------------------ library
 
 

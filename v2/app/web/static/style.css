@@ -447,3 +447,12 @@ th.sortable:hover { color: var(--text); }
 th.sortable .arrow { margin-left: 5px; font-size: 10px; opacity: .35; }
 th.sortable.sorted { color: var(--accent); }
 th.sortable.sorted .arrow { opacity: 1; }
+
+/* mount page */
+.pbar { height: 6px; border-radius: 3px; background: var(--surf2); overflow: hidden; margin-bottom: 4px; min-width: 80px; }
+.pbar > div { height: 100%; background: var(--accent); transition: width .4s; }
+.pbar.ready > div { background: var(--green); } .pbar.error > div { background: var(--red); }
+.small.bad { color: var(--red); }
+#mStats { margin-bottom: 14px; }
+#mProvBox, #mStats + div + .box { margin-bottom: 14px; }
+.box + .box { margin-top: 14px; }

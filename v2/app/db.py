@@ -6,6 +6,7 @@ is plenty for a single-user app.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 import time
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .models import Item, State
+
+log = logging.getLogger("clid2.state")
 
 SCHEMA_VERSION = 1
 
@@ -281,7 +284,22 @@ class DB:
         sets = ["state=?", "updated_at=?"] + [f"{k}=?" for k in fields]
         params = [state.value, time.time(), *fields.values(), item_id]
         with self.tx() as c:
+            old = c.execute("SELECT kind, title, year, season, episode, state, mode FROM items WHERE id=?",
+                            (item_id,)).fetchone()
             c.execute(f"UPDATE items SET {', '.join(sets)} WHERE id=?", params)
+        if old and old["state"] != state.value:
+            label = (f"{old['title']} S{old['season']:02d}E{old['episode']:02d}" if old["kind"] == "episode"
+                     else f"{old['title']} ({old['year']})" if old["year"] else old["title"])
+            extra = []
+            mode = fields.get("mode", old["mode"])
+            if mode:
+                extra.append(mode)
+            if fields.get("next_attempt_at"):
+                extra.append(f"next try in {max(0, int(fields['next_attempt_at'] - time.time())) // 60}m")
+            if fields.get("attempts"):
+                extra.append(f"empty searches {fields['attempts']}")
+            log.info("[item %d %s] %s -> %s%s", item_id, label, old["state"], state.value,
+                     f" ({', '.join(extra)})" if extra else "")
 
     def record_release(self, item_id: int, key: str, name: str, score: float | None,
                        outcome: str) -> None:

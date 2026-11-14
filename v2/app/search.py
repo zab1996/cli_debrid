@@ -119,22 +119,49 @@ async def fetch(db: DB, job: Job) -> list[Release]:
     return await scrapers.search_all(job.query)
 
 
-def rank_copy(db: DB, raw: list[Release], q: Query, items: list[Item]) -> list[Release]:
+def rank_copy(db: DB, raw: list[Release], q: Query, items: list[Item], tag: str = "") -> list[Release]:
     """Rank fresh copies of `raw` for one query (ranking mutates releases)."""
-    return rank([replace(r, parsed=dict(r.parsed), reject="", score=0.0) for r in raw], q,
-                config.get().quality, tried_keys(db, items))
+    copies = [replace(r, parsed=dict(r.parsed), reject="", score=0.0) for r in raw]
+    ranked = rank(copies, q, config.get().quality, tried_keys(db, items))
+    if tag:
+        log_ranked(tag, copies, ranked)
+    return ranked
+
+
+def log_ranked(tag: str, raw: list[Release], ranked: list[Release]) -> None:
+    """1.x-style search summary: counts, why things were dropped, the top picks,
+    and when nothing passed, the closest misses with their reasons."""
+    rejected = [r for r in raw if r.reject]
+    reasons = Counter(r.reject.split(" (")[0] for r in rejected)
+    log.info("%s %d results, %d acceptable; rejected: %s", tag, len(raw), len(ranked),
+             ", ".join(f"{k}={v}" for k, v in reasons.most_common(8)) or "none")
+    fallback = ranked[0].parsed.get("_version") if ranked else None
+    if fallback:
+        log.info("%s   nothing passed the main version; using fallback %r", tag, fallback)
+    for n, r in enumerate(ranked[:3], 1):
+        log.info("%s   #%d score %.1f %s %.1fGB %s%s: %s", tag, n, r.score, r.protocol,
+                 r.size_gb, r.indexer, " cached" if r.cached else "", r.title)
+    if not ranked:
+        for r in rejected[:3]:
+            log.info("%s   rejected %s (%s, %.1fGB): %s", tag, r.title, r.indexer, r.size_gb, r.reject)
 
 
 async def run(db: DB, job: Job) -> list[Release]:
     raw = await scrapers.search_all(job.query)
+    log.info("%s searching (%s)", job_tag(job), _describe(job.query))
     job.results = rank(raw, job.query, config.get().quality, tried_keys(db, job.items))
-    reasons = Counter(r.reject.split(" (")[0] for r in raw if r.reject)
-    log.info("%s %d results, %d acceptable; rejected: %s", job_tag(job), len(raw), len(job.results),
-             ", ".join(f"{k}={v}" for k, v in reasons.most_common(8)) or "none")
-    for n, r in enumerate(job.results[:3], 1):
-        log.info("%s   #%d score %.1f %s %.1fGB %s%s: %s", job_tag(job), n, r.score, r.protocol,
-                 r.size_gb, r.indexer, " cached" if r.cached else "", r.title)
+    log_ranked(job_tag(job), raw, job.results)
     return job.results
+
+
+def _describe(q: Query) -> str:
+    ids = ", ".join(f"{k} {v}" for k, v in (("imdb", q.imdb_id), ("tvdb", q.tvdb_id), ("tmdb", q.tmdb_id)) if v)
+    what = q.kind
+    if q.kind == "season":
+        what = f"season {q.season}, {q.episode_count or '?'} eps"
+    elif q.kind == "episode":
+        what = f"S{q.season:02d}E{q.episode:02d}" + (f", absolute {q.absolute}" if q.absolute else "")
+    return f"{what}; {ids}" if ids else what
 
 
 def split(db: DB, job: Job) -> list[Job]:
