@@ -125,6 +125,7 @@
 {% macro notifications(c) %}
 <fieldset>
   <legend>Notify me when…</legend>
+  <p class="hint">These show up in the app (the bell at the top, plus a pop-up while it's open). Sending them to Discord etc. below is optional.</p>
   <input type="hidden" name="notify-present" value="1">
   <div class="row">
     {% for k, label in [('collected', 'Something is collected'), ('upgraded', 'A file is replaced / upgraded'), ('failed', 'Something gives up (Failed)'), ('blacklisted', 'I blacklist a title')] %}
@@ -134,7 +135,7 @@
   <p class="hint">Messages are batched every 30 seconds, so a season pack sends one message listing its episodes.</p>
 </fieldset>
 <fieldset>
-  <legend>Send to</legend>
+  <legend>Also send to <span class="opt">optional</span></legend>
   <p class="hint">Discord: webhook URL. Telegram: bot token + chat id. ntfy: topic URL (token optional). Pushover: app token + user key (in "Chat id / user key"). Webhook: URL gets JSON. Clear the row to remove it.</p>
   {% for n in c.notifications + [none] %}{% set i = loop.index0 %}
   <div class="row card">

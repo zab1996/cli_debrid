@@ -835,6 +835,17 @@ def logs(request: Request, lines: int = 300):
     return render(request, "logs.html", text=text, lines=lines)
 
 
+@router.get("/api/inbox")
+def api_inbox(request: Request):
+    return notify.inbox(request.app.state.db)
+
+
+@router.post("/api/inbox/read")
+def api_inbox_read(request: Request):
+    notify.mark_read(request.app.state.db)
+    return {"ok": True}
+
+
 @router.get("/api/status")
 async def api_status(request: Request):
     db = request.app.state.db

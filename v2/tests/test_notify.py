@@ -30,12 +30,13 @@ def _cfg(monkeypatch, *targets, **on):
     return cfg
 
 
-def test_nothing_queued_without_targets_or_when_event_off(db, monkeypatch):
+def test_nothing_sent_out_without_targets_or_when_event_off(db, monkeypatch):
     _cfg(monkeypatch)
     notify.emit(db, "collected", "X")
     _cfg(monkeypatch, config.NotifyTarget(type="discord", url="https://d"), failed=False)
     notify.emit(db, "failed", "Y")
     assert db.query("SELECT COUNT(*) n FROM notifications")[0]["n"] == 0
+    assert [r["title"] for r in db.query("SELECT title FROM inbox")] == ["X"]
 
 
 def test_batched_per_event_and_formats(db, monkeypatch, sent):
@@ -72,3 +73,18 @@ def test_long_batches_are_trimmed():
     heading, lines = notify._message("collected", rows)
     assert heading == "✅ Collected (40)" and len(lines) == notify.MAX_LINES + 1
     assert lines[-1] == "…and 15 more"
+
+
+def test_in_app_inbox_without_any_service(db, monkeypatch):
+    _cfg(monkeypatch)  # no external services set up
+    notify.emit(db, "collected", "The Matrix (1999)", "The.Matrix.1999.1080p", 7)
+    blacklist.block(db, "show", 1, "Bad Show")
+    box = notify.inbox(db)
+    assert box["unread"] == 2 and [i["event"] for i in box["items"]] == ["blacklisted", "collected"]
+    assert box["items"][1]["item_id"] == 7 and box["items"][1]["icon"] == "✅"
+    assert db.query("SELECT COUNT(*) n FROM notifications")[0]["n"] == 0  # nothing queued to send out
+    notify.mark_read(db)
+    assert notify.inbox(db)["unread"] == 0
+    _cfg(monkeypatch, collected=False)
+    notify.emit(db, "collected", "Off")
+    assert notify.inbox(db)["items"][0]["title"] != "Off"

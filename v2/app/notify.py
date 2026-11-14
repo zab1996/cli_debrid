@@ -26,14 +26,41 @@ MAX_LINES = 25
 MAX_TRIES = 5
 
 
+INBOX_KEEP = 500
+
+
 def emit(db: DB, event: str, title: str, detail: str = "", item_id: int | None = None) -> None:
-    """Queue a notification (no-op if that event is switched off or nothing is set up)."""
+    """Record a notification: always in the app (bell + pop-up), and queued for
+    any external services that are set up. Switched-off events are skipped."""
     cfg = config.get()
-    if not any(t.enabled for t in cfg.notifications) or not getattr(cfg.notify_on, event, False):
+    if not getattr(cfg.notify_on, event, False):
         return
+    now = time.time()
     with db.tx() as c:
-        c.execute("INSERT INTO notifications(event, title, detail, item_id, at) VALUES (?,?,?,?,?)",
-                  (event, title, detail, item_id, time.time()))
+        c.execute("INSERT INTO inbox(at, event, title, detail, item_id) VALUES (?,?,?,?,?)",
+                  (now, event, title, detail, item_id))
+        c.execute("DELETE FROM inbox WHERE id <= (SELECT MAX(id) FROM inbox) - ?", (INBOX_KEEP,))
+        if any(t.enabled for t in cfg.notifications):
+            c.execute("INSERT INTO notifications(event, title, detail, item_id, at) VALUES (?,?,?,?,?)",
+                      (event, title, detail, item_id, now))
+
+
+def inbox(db: DB, limit: int = 40) -> dict:
+    rows = db.query("SELECT id, at, event, title, detail, item_id, read FROM inbox ORDER BY id DESC LIMIT ?",
+                    (limit,))
+    unread = db.query("SELECT COUNT(*) n FROM inbox WHERE read=0")[0]["n"]
+    items = []
+    for r in rows:
+        heading, emoji, _ = EVENTS.get(r["event"], (r["event"], "•", 0))
+        items.append({"id": r["id"], "at": r["at"], "event": r["event"], "label": heading, "icon": emoji,
+                      "title": r["title"], "detail": r["detail"] or "", "item_id": r["item_id"],
+                      "read": bool(r["read"])})
+    return {"unread": unread, "latest": rows[0]["id"] if rows else 0, "items": items}
+
+
+def mark_read(db: DB) -> None:
+    with db.tx() as c:
+        c.execute("UPDATE inbox SET read=1 WHERE read=0")
 
 
 def _message(event: str, rows: list) -> tuple[str, list[str]]:

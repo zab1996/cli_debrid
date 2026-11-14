@@ -151,6 +151,17 @@ CREATE TABLE IF NOT EXISTS notifications (
     tries   INTEGER NOT NULL DEFAULT 0
 );
 
+-- In-app notifications (the bell + pop-ups). Trimmed to the newest 500.
+CREATE TABLE IF NOT EXISTS inbox (
+    id      INTEGER PRIMARY KEY,
+    at      REAL NOT NULL,
+    event   TEXT NOT NULL,
+    title   TEXT NOT NULL,
+    detail  TEXT,
+    item_id INTEGER,
+    read    INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
