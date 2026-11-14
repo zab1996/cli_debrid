@@ -5,15 +5,17 @@
 {% if saved %}<div class="notice ok">Saved.</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 <div class="tabs" role="tablist">
-  {% for key, label in [('required', 'Required'), ('downloads', 'Downloads'), ('indexers', 'Indexers'), ('library', 'Library & Quality'), ('lists', 'Lists'), ('notifications', 'Notifications'), ('other', 'Other')] %}
+  {% for key, label in [('required', 'Required'), ('downloads', 'Downloads'), ('mount', 'Mount'), ('indexers', 'Indexers'), ('version', 'Version'), ('library', 'Library'), ('lists', 'Lists'), ('notifications', 'Notifications'), ('other', 'Other')] %}
   <button type="button" data-tab="{{ key }}" class="{{ 'on' if loop.first }}">{{ label }}</button>
   {% endfor %}
 </div>
 <form method="post" class="settings">
   <div class="tab on" data-tab="required">{{ f.metadata(c) }}</div>
   <div class="tab" data-tab="downloads">{{ f.downloads(c, debrids) }}</div>
+  <div class="tab" data-tab="mount">{{ f.mount(c, mount_defaults) }}</div>
   <div class="tab" data-tab="indexers">{{ f.indexers(c, indexer_types) }}</div>
-  <div class="tab" data-tab="library">{{ f.library(c, presets) }}</div>
+  <div class="tab" data-tab="version">{{ f.version(c) }}</div>
+  <div class="tab" data-tab="library">{{ f.library(c) }}</div>
   <div class="tab" data-tab="lists">{{ f.sources(c, source_types) }}</div>
   <div class="tab" data-tab="notifications">{{ f.notifications(c) }}</div>
   <div class="tab" data-tab="other">

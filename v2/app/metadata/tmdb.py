@@ -125,6 +125,8 @@ async def show(db: DB, tmdb_id: int) -> dict:
             "imdb_id": ext.get("imdb_id"),
             "tvdb_id": ext.get("tvdb_id"),
             "status": s.get("status", ""),
+            "runtime": next(iter(s.get("episode_run_time") or []), 0)
+                       or ((s.get("last_episode_to_air") or {}).get("runtime") or 0),
             "poster": f"{IMAGE}{s['poster_path']}" if s.get("poster_path") else None,
             "is_anime": 16 in [g.get("id") for g in s.get("genres", [])]
                         and s.get("original_language") == "ja",

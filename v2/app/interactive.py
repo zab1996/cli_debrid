@@ -57,7 +57,7 @@ async def _query(db: DB, kind: str, tmdb_id: int, season: int | None, episode: i
         m = await tmdb.movie(db, tmdb_id)
         aliases = [m["original_title"]] if m.get("original_title") and m["original_title"] != m["title"] else []
         q = Query(kind="movie", title=m["title"], year=m["year"], imdb_id=m["imdb_id"],
-                  tmdb_id=tmdb_id, aliases=aliases)
+                  tmdb_id=tmdb_id, aliases=aliases, runtime=m.get("runtime") or 0)
         return q, f"{m['title']} ({m['year']})"
     info = await tmdb.show(db, tmdb_id)
     aliases = list(info.get("aliases") or [])
@@ -72,7 +72,7 @@ async def _query(db: DB, kind: str, tmdb_id: int, season: int | None, episode: i
     q = Query(kind=kind, title=info["title"], year=info["year"], imdb_id=info["imdb_id"],
               tmdb_id=tmdb_id, tvdb_id=info.get("tvdb_id"), season=season, episode=episode,
               absolute=absolute, aliases=aliases, is_anime=bool(info.get("is_anime")),
-              episode_count=max(count, 1))
+              episode_count=max(count, 1), runtime=info.get("runtime") or 0)
     label = f"{info['title']} S{season:02d}" + (f"E{episode:02d}" if kind == "episode" else " (season pack)")
     return q, label
 
@@ -150,6 +150,7 @@ def to_json(db: DB, s: Search) -> dict:
             "audio": ", ".join((p.get("audio") or [])[:2]),
             "languages": ", ".join(p.get("languages") or []),
             "grabbable": not r.reject.startswith("usenet pack"),
+            "version": p.get("_version", ""),
         })
     return {"id": s.id, "label": s.label, "kind": s.kind, "took": round(s.took, 1),
             "accepted": sum(1 for r in s.releases if not r.reject), "results": rows}

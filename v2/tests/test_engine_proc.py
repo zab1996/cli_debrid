@@ -36,7 +36,7 @@ def test_not_ready_without_providers():
                       advanced={"engine": {"log_level": "debug", "mount": {"dfs": {"chunk_size": "8MB"}}}})
     assert engine_config.ready(c)
     built = engine_config.build(c, config.DATA_DIR / "engine")
-    assert built["usenet"]["max_connections"] == 8 and built["log_level"] == "debug"
+    assert built["usenet"]["max_connections"] == 20 and built["log_level"] == "debug"
     assert built["mount"]["dfs"]["chunk_size"] == "8MB" and built["mount"]["type"] == "dfs"
 
 
@@ -57,3 +57,24 @@ def test_only_fuse_mounts_are_unmounted():
     assert not engine_proc.is_fuse_mount("/media/a b/mnt", info)       # bind mount: leave it
     assert engine_proc.is_fuse_mount("/media/a b/fuse/", info)
     assert not engine_proc.is_fuse_mount("/elsewhere", info)
+
+
+def test_mount_settings_reach_engine_with_live_defaults():
+    m = config.MountConfig()
+    assert (m.disk_cache_size, m.cache_expiry, m.chunk_size, m.read_ahead_size, m.umask) == \
+        ("100GB", "2h", "8MB", "32MB", "002")
+    old = config.MountConfig.model_validate({"path": "/x", "cache_size_gb": 10})
+    assert old.disk_cache_size == "10GB"
+    c = config.Config(usenet=[config.UsenetProvider(host="h", connections=50)])
+    c.plex.url, c.plex.token = "http://plex:32400", "tok"
+    built = engine_config.build(c, config.DATA_DIR / "engine")
+    dfs = built["mount"]["dfs"]
+    assert dfs["prewarm_next_episode"] and dfs["plex_url"] == "http://plex:32400"
+    assert dfs["disk_cache_size"] == "100GB" and "buffer_memory" not in dfs
+    u = built["usenet"]
+    assert u["max_connections"] == 20 and u["read_ahead"] == "16MB" and u["deobfuscate_mode"] == "season_ep"
+    assert u["providers"][0]["max_connections"] == 50
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        config.MountConfig(chunk_size="lots")

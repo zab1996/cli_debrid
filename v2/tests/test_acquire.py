@@ -64,7 +64,8 @@ class FakeEngine:
 
 @pytest.fixture
 def env(tmp_path, monkeypatch, db):
-    cfg = config.Config()
+    from tests.conftest import plain_profile
+    cfg = config.Config(quality=plain_profile())
     cfg.library.movies_path = str(tmp_path / "movies")
     cfg.library.shows_path = str(tmp_path / "shows")
     monkeypatch.setattr(config, "_current", cfg)

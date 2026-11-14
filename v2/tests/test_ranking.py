@@ -1,6 +1,5 @@
 import pytest
 
-from app.config import QualityConfig
 from app.ranking import Query, Release
 from app.ranking.filter import check, title_similarity
 from app.ranking.score import rank
@@ -8,8 +7,10 @@ from app.ranking.score import rank
 MOVIE = Query(kind="movie", title="The Matrix", year=1999, imdb_id="tt0133093")
 EP = Query(kind="episode", title="Breaking Bad", season=1, episode=2, imdb_id="tt0903747")
 SEASON = Query(kind="season", title="Breaking Bad", season=1, episode_count=7)
-P1080 = QualityConfig(preset="1080p")
-P4K = QualityConfig(preset="4k_1080p")
+from tests.conftest import plain_profile
+
+P1080 = plain_profile(max_resolution="1080p")
+P4K = plain_profile(max_resolution="2160p")
 
 
 def R(title, size=2.0, proto="torrent", **kw):
@@ -21,12 +22,13 @@ def R(title, size=2.0, proto="torrent", **kw):
     ("The.Matrix.1999.1080p.BluRay.x264-GRP", MOVIE, P1080, ""),
     ("The.Matrix.Reloaded.2003.1080p.BluRay.x264", MOVIE, P1080, "title mismatch"),
     ("The.Matrix.1999.2160p.UHD.BluRay.x265", MOVIE, P1080, "resolution 2160p"),
+    ("The.Matrix.1999.720p.WEB", MOVIE, plain_profile(max_resolution="1080p", resolution_wanted="=="), "resolution 720p"),
+    ("The.Matrix.1999.1080p.HDR.WEB", MOVIE, plain_profile(enable_hdr=False), "HDR"),
     ("The.Matrix.1999.2160p.UHD.BluRay.x265", MOVIE, P4K, ""),
     ("The.Matrix.1999.HDCAM.x264", MOVIE, P1080, "cam/screener"),
     ("The.Matrix.1985.1080p.WEB", MOVIE, P1080, "year 1985"),
     ("The Matrix S01E01 1080p WEB", MOVIE, P1080, "looks like a show"),
-    ("The.Matrix.1999.FRENCH.1080p.WEB.H264", MOVIE, QualityConfig(language="en"), "language fr"),
-    ("The.Matrix.1999.MULTi.1080p.WEB.H264", MOVIE, QualityConfig(language="en"), ""),
+    ("The.Matrix.1999.FRENCH.1080p.WEB.H264", MOVIE, plain_profile(language="en"), ""),  # penalised, not rejected
     ("Breaking.Bad.S01E02.1080p.WEB-DL", EP, P1080, ""),
     ("Breaking.Bad.S01E03.1080p.WEB-DL", EP, P1080, "wrong episode"),
     ("Breaking.Bad.S02E02.1080p.WEB-DL", EP, P1080, "wrong season"),
@@ -51,19 +53,78 @@ def test_check(title, q, prof, reason):
 
 
 def test_size_limits_are_per_episode():
-    prof = QualityConfig(max_size_gb=3)
+    prof = plain_profile(max_size_gb=3)
     big_pack = R("Breaking.Bad.S01.1080p.BluRay", size=14)  # 7 eps -> 2 GB each
     assert check(big_pack, SEASON, prof) == ""
     huge = R("Breaking.Bad.S01.1080p.BluRay", size=30)
     assert check(huge, SEASON, prof).startswith("too big")
 
 
-def test_never_and_must_words():
-    prof = QualityConfig(never_contain=["HDTS", "/\\bkor\\b/"], language="")
-    assert check(R("The.Matrix.1999.1080p.KOR.WEB"), MOVIE, prof).startswith("contains")
+def test_filter_in_out_like_v1():
+    from app.config import FilterPattern as F
+    prof = plain_profile(filter_out=[F(pattern="HDTS"), F(pattern=r"\bKOR\b"), F(pattern='"x.y"'),
+                                     F(pattern=r"(?-i:WEB-DL)", source="debrid")], language="")
+    assert check(R("The.Matrix.1999.1080p.KOR.WEB"), MOVIE, prof).startswith("filter out")
     assert check(R("The.Matrix.1999.1080p.KOREAN.WEB"), MOVIE, prof) == ""
-    prof2 = QualityConfig(must_contain=["remux"])
-    assert check(R("The.Matrix.1999.1080p.WEB"), MOVIE, prof2) == "missing required word"
+    assert check(R("The.Matrix.1999.1080p.x.y.WEB"), MOVIE, prof).startswith("filter out")
+    # debrid-only pattern: rejects the torrent, not the same name on usenet; case-sensitive via (?-i:)
+    assert check(R("The.Matrix.1999.1080p.WEB-DL"), MOVIE, prof).startswith("filter out")
+    nzb = Release(title="The.Matrix.1999.1080p.WEB-DL", protocol="nzb", indexer="n", size_gb=2, guid="g", nzb_url="u")
+    assert check(nzb, MOVIE, prof) == ""
+    assert check(R("The.Matrix.1999.1080p.web-dl"), MOVIE, prof) == ""
+    prof2 = plain_profile(filter_in=[F(pattern="remux")])
+    assert check(R("The.Matrix.1999.1080p.WEB"), MOVIE, prof2) == "no filter-in match"
+
+
+def test_bitrate_limits_use_runtime():
+    q = Query(kind="movie", title="The Matrix", year=1999, runtime=136)
+    prof = plain_profile(min_bitrate_mbps=3, max_bitrate_mbps=18)
+    assert check(R("The.Matrix.1999.1080p.WEB", size=1.0), q, prof).startswith("bitrate too low")
+    assert check(R("The.Matrix.1999.1080p.BluRay", size=40), q, prof).startswith("bitrate too high")
+    assert check(R("The.Matrix.1999.1080p.BluRay", size=10), q, prof) == ""      # ~10.5 Mbps
+    assert check(R("The.Matrix.1999.1080p.WEB", size=1.0), MOVIE, prof) == ""   # unknown runtime: skipped
+
+
+def test_your_v1_1080p_version():
+    """The ported 1.x '1080p' version with its '720 and below' fallback."""
+    from app.config import Config
+    prof = Config().quality
+    q = Query(kind="movie", title="The Matrix", year=1999, runtime=136)
+    ok = R("The.Matrix.1999.1080p.BluRay.x264-GRP", size=9, h="ok")
+    assert check(ok, q, prof) == ""
+    for title, why in [("The.Matrix.1999.1080p.HDR.BluRay.x265", "HDR"),
+                       ("The.Matrix.1999.2160p.BluRay.x265", "resolution"),
+                       ("The.Matrix.1999.1080p.WEB-DL.DDP5.1", "filter out"),      # debrid WEB-DL rule
+                       ("The.Matrix.1999.1080p.BluRay.HINDI.x264", "filter out"),
+                       ("The.Matrix.1999.1080p.DoVi.BluRay", ("HDR", "filter out"))]:
+        assert check(R(title, size=9), q, prof).startswith(why), title
+    ad = R("The.Matrix.1999.1080p.BluRay.Audio.Description.x264", size=9, h="ad")
+    ranked = rank([ok, ad], q, prof)
+    assert ranked[0].info_hash == "ok" and ranked[1].score < -5000
+    # Nothing at 1080p -> the 720 fallback version is used.
+    only720 = R("The.Matrix.1999.720p.BluRay.x264", size=5, h="sd")
+    got = rank([only720], q, prof)
+    assert [r.info_hash for r in got] == ["sd"] and got[0].parsed["_version"] == "720 and below"
+
+
+def test_foreign_language_is_a_penalty():
+    q = MOVIE
+    prof = plain_profile(language="en")
+    eng = R("The.Matrix.1999.1080p.WEB", h="en")
+    fr = R("The.Matrix.1999.FRENCH.1080p.WEB", h="fr")
+    multi = R("The.Matrix.1999.MULTi.1080p.WEB", h="mu")
+    out = rank([fr, eng, multi], q, prof)
+    assert out[-1].info_hash == "fr" and out[0].score - out[-1].score >= 299
+
+
+def test_indexer_priority_bonus(monkeypatch):
+    from app import config
+    cfg = config.Config(indexers=[config.IndexerConfig(type="torrentio", priority=30)])
+    monkeypatch.setattr(config, "_current", cfg)
+    a = Release(title="The.Matrix.1999.1080p.WEB", protocol="torrent", indexer="torrentio", size_gb=2, info_hash="a")
+    b = Release(title="The.Matrix.1999.1080p.WEB", protocol="torrent", indexer="zilean", size_gb=2, info_hash="b")
+    out = rank([b, a], MOVIE, P1080)
+    assert out[0].info_hash == "a" and round(out[0].score - out[1].score) == 30
 
 
 def test_tried_releases_skipped():

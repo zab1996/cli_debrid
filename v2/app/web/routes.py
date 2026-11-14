@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections import deque
 from urllib.parse import quote, urlencode
@@ -34,7 +35,6 @@ SOURCE_TYPES = {
 }
 DEBRIDS = {"": "None", "realdebrid": "Real-Debrid", "torbox": "TorBox", "alldebrid": "AllDebrid",
            "premiumize": "Premiumize", "debridlink": "Debrid-Link"}
-PRESETS = {"1080p": "1080p (720p fallback)", "4k": "4K only", "4k_1080p": "4K, else 1080p"}
 
 
 def _ago(ts: float | None) -> str:
@@ -595,6 +595,65 @@ def _rows(form, prefix: str, fields: list[str]) -> list[dict]:
     return [rows[i] for i in sorted(rows)]
 
 
+_SCOPE = re.compile(r"\s+\[(nzb|debrid)\]\s*$")
+
+
+def _patterns(text: str) -> list[dict]:
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = _SCOPE.search(line)
+        out.append({"pattern": line[:m.start()] if m else line, "source": m.group(1) if m else "both"})
+    return out
+
+
+def _weighted(text: str) -> list[dict]:
+    out = []
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        weight, sep, pattern = line.partition("|")
+        if not sep:
+            raise ValueError(f"preferred filter needs 'weight | pattern': {line.strip()!r}")
+        out.append({"weight": float(weight.strip() or 0), "pattern": pattern.strip()})
+    return out
+
+
+def _num(form, key, default):
+    v = form.get(key)
+    return float(v) if v not in (None, "") else default
+
+
+def version_from_form(form, current: dict) -> dict:
+    v = dict(current)
+    v["name"] = form.get("quality.name", v["name"]).strip() or "default"
+    v["enable_hdr"] = form.get("quality.enable_hdr") == "on"
+    v["language"] = form.get("quality.language", v["language"]).strip()
+    for k in ("max_resolution", "resolution_wanted"):
+        v[k] = form.get(f"quality.{k}", v[k])
+    for k in ("min_size_gb", "max_size_gb", "min_bitrate_mbps", "max_bitrate_mbps", "similarity_threshold",
+              "resolution_weight", "hdr_weight", "similarity_weight", "size_weight", "bitrate_weight",
+              "year_match_weight", "language_weight", "foreign_language_penalty", "audio_description_penalty"):
+        v[k] = _num(form, f"quality.{k}", v[k])
+    v["filter_out"] = _patterns(form.get("quality.filter_out", ""))
+    v["filter_in"] = _patterns(form.get("quality.filter_in", ""))
+    v["preferred_filter_in"] = _weighted(form.get("quality.preferred_filter_in", ""))
+    v["preferred_filter_out"] = _weighted(form.get("quality.preferred_filter_out", ""))
+    if form.get("fallback.enabled") == "on":
+        fb = {k: val for k, val in v.items() if k != "fallback"}
+        fb["name"] = form.get("fallback.name", "fallback").strip() or "fallback"
+        for k in ("max_resolution", "resolution_wanted"):
+            fb[k] = form.get(f"fallback.{k}", fb[k])
+        for k in ("min_size_gb", "max_size_gb", "min_bitrate_mbps", "max_bitrate_mbps"):
+            fb[k] = _num(form, f"fallback.{k}", fb[k])
+        v["fallback"] = fb
+    else:
+        v["fallback"] = None
+    return v
+
+
 def config_from_form(form, base: Config) -> Config:
     d = base.model_dump()
     d["plex"] = {"url": form.get("plex.url", "").strip(), "token": form.get("plex.token", "").strip()}
@@ -603,20 +662,21 @@ def config_from_form(form, base: Config) -> Config:
     for k in ("tmdb_api_key", "tvdb_api_key", "trakt_client_id", "mdblist_api_key", "web_password"):
         if k in form:
             d[k] = form.get(k, "").strip()
-    d["mount"] = {"path": form.get("mount.path", d["mount"]["path"]).strip(),
-                  "cache_size_gb": int(form.get("mount.cache_size_gb") or d["mount"]["cache_size_gb"])}
+    m = dict(d["mount"])
+    for k, v in m.items():
+        key = f"mount.{k}"
+        if isinstance(v, bool):
+            if "mount-present" in form:
+                m[k] = form.get(key) == "on"
+        elif key in form:
+            raw = form.get(key, "").strip()
+            m[k] = int(raw or 0) if isinstance(v, int) else raw
+    d["mount"] = m
     d["library"] = {"mode": form.get("library.mode", d["library"]["mode"]),
                     "movies_path": form.get("library.movies_path", d["library"]["movies_path"]).strip(),
                     "shows_path": form.get("library.shows_path", d["library"]["shows_path"]).strip()}
-    q = d["quality"]
-    d["quality"] = {
-        "preset": form.get("quality.preset", q["preset"]),
-        "min_size_gb": float(form.get("quality.min_size_gb") or 0),
-        "max_size_gb": float(form.get("quality.max_size_gb") or 0),
-        "language": form.get("quality.language", q["language"]).strip(),
-        "must_contain": [w.strip() for w in form.get("quality.must_contain", "").split(",") if w.strip()],
-        "never_contain": [w.strip() for w in form.get("quality.never_contain", "").split(",") if w.strip()],
-    }
+    if "version-present" in form:
+        d["quality"] = version_from_form(form, d["quality"])
     if "upgrade_days" in form:
         d["upgrade_days"] = int(form.get("upgrade_days") or 0)
     if "usenet-present" in form:
@@ -629,8 +689,8 @@ def config_from_form(form, base: Config) -> Config:
     if "indexers-present" in form:
         d["indexers"] = [
             {"type": r["type"], "url": r.get("url", "").strip(), "api_key": r.get("api_key", "").strip(),
-             "enabled": r.get("enabled") == "on"}
-            for r in _rows(form, "indexers", ["type", "url", "api_key", "enabled"])
+             "enabled": r.get("enabled") == "on", "priority": float(r.get("priority") or 0)}
+            for r in _rows(form, "indexers", ["type", "url", "api_key", "enabled", "priority"])
             if r.get("type") and (r.get("url", "").strip() or r["type"] == "torrentio")]
     if "notify-present" in form:
         d["notifications"] = [
@@ -661,7 +721,8 @@ async def _apply(request: Request, new: Config) -> None:
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: int = 0):
     return render(request, "settings.html", c=config.get(), saved=saved, error="",
-                  debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES,
+                  mount_defaults=config.MountConfig().model_dump(),
+                  debrids=DEBRIDS, indexer_types=INDEXER_TYPES,
                   source_types=SOURCE_TYPES)
 
 
@@ -672,7 +733,8 @@ async def settings_save(request: Request):
         new = config_from_form(form, config.get())
     except (ValidationError, ValueError) as e:
         return render(request, "settings.html", c=config.get(), saved=0, error=str(e),
-                      debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES,
+                      mount_defaults=config.MountConfig().model_dump(),
+                      debrids=DEBRIDS, indexer_types=INDEXER_TYPES,
                       source_types=SOURCE_TYPES)
     await _apply(request, new)
     return back("/settings?saved=1")
@@ -720,7 +782,7 @@ def setup_page(request: Request, step: str = "metadata"):
     if step not in SETUP_STEPS:
         step = "metadata"
     return render(request, "setup.html", c=config.get(), step=step, steps=SETUP_STEPS,
-                  debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES, error="",
+                  debrids=DEBRIDS, indexer_types=INDEXER_TYPES, error="",
                   source_types=SOURCE_TYPES, nav="setup")
 
 
@@ -732,7 +794,7 @@ async def setup_save(request: Request):
         new = config_from_form(form, config.get())
     except (ValidationError, ValueError) as e:
         return render(request, "setup.html", c=config.get(), step=step, steps=SETUP_STEPS,
-                      debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES, error=str(e),
+                      debrids=DEBRIDS, indexer_types=INDEXER_TYPES, error=str(e),
                       source_types=SOURCE_TYPES, nav="setup")
     error = ""
     if step == "metadata":
@@ -752,7 +814,7 @@ async def setup_save(request: Request):
     await _apply(request, new)  # save even with a warning; the user may fix later
     if error:
         return render(request, "setup.html", c=config.get(), step=step, steps=SETUP_STEPS,
-                      debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES, error=error,
+                      debrids=DEBRIDS, indexer_types=INDEXER_TYPES, error=error,
                       source_types=SOURCE_TYPES, nav="setup")
     i = SETUP_STEPS.index(step)
     if i + 1 < len(SETUP_STEPS):

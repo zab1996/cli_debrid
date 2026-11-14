@@ -34,10 +34,7 @@ def build(cfg: Config, engine_dir: Path) -> dict:
         "mount": {
             "type": "dfs",
             "mount_path": cfg.mount.path,
-            "dfs": {
-                "cache_dir": str(engine_dir / "cache"),
-                "disk_cache_size": f"{cfg.mount.cache_size_gb}GB",
-            },
+            "dfs": dfs_settings(cfg, engine_dir),
         },
     }
     if cfg.debrid.provider and cfg.debrid.api_key:
@@ -53,9 +50,38 @@ def build(cfg: Config, engine_dir: Path) -> dict:
             "max_connections": p.connections, "priority": i,
         })
     if cfg.usenet:
-        out["usenet"]["max_connections"] = sum(p.connections for p in cfg.usenet)
+        m = cfg.mount
+        out["usenet"].update({
+            "max_connections": m.usenet_max_connections,               # per streaming file
+            "processing_max_connections": m.usenet_processing_connections,
+            "read_ahead": m.usenet_read_ahead,
+            "buffer_memory": m.usenet_buffer_memory,
+            "interactive_pool_reserve_enabled": m.usenet_interactive_reserve,
+            "interactive_pool_reserve_percent": m.usenet_interactive_reserve_percent,
+            "processing_timeout": m.usenet_processing_timeout,
+            "availability_sample_percent": m.usenet_availability_sample_percent,
+            "deobfuscate_mode": m.usenet_deobfuscate_mode,
+        })
     _merge(out, cfg.adv("engine", {}) or {})
     return out
+
+
+def dfs_settings(cfg: Config, engine_dir: Path) -> dict:
+    m = cfg.mount
+    d = {
+        "cache_dir": str(engine_dir / "cache"),
+        "disk_cache_size": m.disk_cache_size,
+        "cache_expiry": m.cache_expiry,
+        "cache_cleanup_interval": m.cache_cleanup_interval,
+        "chunk_size": m.chunk_size,
+        "read_ahead_size": m.read_ahead_size,
+        "uid": m.uid, "gid": m.gid, "umask": m.umask,
+    }
+    if m.buffer_memory:
+        d["buffer_memory"] = m.buffer_memory
+    if m.prewarm_next_episode and cfg.plex.url and cfg.plex.token:
+        d.update(prewarm_next_episode=True, plex_url=cfg.plex.url, plex_token=cfg.plex.token)
+    return d
 
 
 def _merge(base: dict, extra: dict) -> None:

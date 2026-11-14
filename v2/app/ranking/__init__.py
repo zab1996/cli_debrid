@@ -41,3 +41,4 @@ class Query:
     aliases: list[str] = field(default_factory=list)
     is_anime: bool = False
     episode_count: int = 1        # for season packs: episodes the pack must cover
+    runtime: int = 0              # minutes per movie / episode (0 = unknown: no bitrate checks)

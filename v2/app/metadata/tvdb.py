@@ -63,6 +63,7 @@ async def episodes(db: DB, tvdb_id: int) -> dict[str, list[dict]]:
                     "air_date": (e.get("aired") or None),
                     "title": e.get("name") or "",
                     "absolute": e.get("absoluteNumber") or None,
+                    "runtime": e.get("runtime") or 0,
                 })
             if not eps or not (d.get("links") or {}).get("next"):
                 break

@@ -8,13 +8,7 @@ from ..config import QualityConfig
 from . import Query, Release
 from .parse import is_obfuscated, normalize, parse
 
-TITLE_MATCH = 0.82
-
-PRESET_RES = {
-    "1080p": {"1080p", "720p"},
-    "4k": {"2160p"},
-    "4k_1080p": {"2160p", "1080p"},
-}
+RES_RANK = {"2160p": 4, "4k": 4, "1440p": 3, "1080p": 3, "720p": 2, "576p": 1, "480p": 1, "sd": 1}
 NZB_MAX_EPISODES = 2   # double episodes are fine; anything bigger is a pack
 TRASH_QUALITY = {"CAM", "TeleSync", "TeleCine", "SCR", "Screener", "TS", "TC"}
 
@@ -45,18 +39,47 @@ def title_similarity(release_title: str, wanted: list[str]) -> float:
     return best
 
 
-def _words_hit(text: str, words: list[str]) -> str | None:
-    low = text.lower()
-    for w in words:
-        w = w.strip()
-        if not w:
-            continue
-        if w.startswith("/") and w.endswith("/") and len(w) > 2:
-            if re.search(w[1:-1], text, re.IGNORECASE):
-                return w
-        elif re.search(rf"(?<![a-z0-9]){re.escape(w.lower())}(?![a-z0-9])", low):
-            return w
-    return None
+def res_rank(res: str | None) -> int:
+    return RES_RANK.get((res or "").lower(), 0)
+
+
+def resolution_ok(res: str | None, prof: QualityConfig) -> bool:
+    """1.x resolution rule: <=, == or >= the version's max resolution."""
+    have, want = res_rank(res), res_rank(prof.max_resolution)
+    if prof.resolution_wanted == "<=":
+        return have <= want
+    if prof.resolution_wanted == ">=":
+        return have >= want
+    return have == want
+
+
+def _is_regex(p: str) -> bool:
+    return any(c in p for c in "\\^$.|?*+()[]{}")
+
+
+def smart_search(pattern: str, text: str) -> bool:
+    """1.x matching: "quoted" = plain substring; regex if it looks like one; else substring.
+    Always case-insensitive unless the pattern turns that off itself ((?-i:...))."""
+    if not pattern or not text:
+        return False
+    if len(pattern) > 1 and pattern[0] == pattern[-1] == '"':
+        return pattern[1:-1].lower() in text.lower()
+    if _is_regex(pattern):
+        try:
+            return re.search(pattern, text, re.IGNORECASE) is not None
+        except re.error:
+            return pattern.lower() in text.lower()
+    return pattern.lower() in text.lower()
+
+
+def _applies(source: str, protocol: str) -> bool:
+    return source == "both" or (source == "nzb") == (protocol == "nzb")
+
+
+def bitrate_mbps(size_gb: float, runtime_min: int) -> float:
+    if not size_gb or not runtime_min:
+        return 0.0
+    return size_gb * 8 * 1024 ** 3 / (runtime_min * 60) / 1_000_000
 
 
 def check(r: Release, q: Query, prof: QualityConfig, tried: set[str] | None = None) -> str:
@@ -72,7 +95,7 @@ def check(r: Release, q: Query, prof: QualityConfig, tried: set[str] | None = No
     names = [q.title, *q.aliases]
     sim = title_similarity(p.get("title", ""), names)
     p["_similarity"] = sim
-    if sim < TITLE_MATCH:
+    if sim < prof.similarity_threshold:
         # ID-searched results tagged with our imdb id are trusted.
         if not (q.imdb_id and r.indexer_imdb and r.indexer_imdb.lstrip("t0") == q.imdb_id.lstrip("t0")):
             return f"title mismatch ({sim:.2f})"
@@ -118,35 +141,38 @@ def check(r: Release, q: Query, prof: QualityConfig, tried: set[str] | None = No
         if q.kind == "season" or not eps or len(eps) > NZB_MAX_EPISODES:
             return "usenet pack"
 
-    # --- quality ------------------------------------------------------------
+    # --- version filters (same rules as cli_debrid 1.x) ----------------------
     if p.get("trash") or p.get("quality") in TRASH_QUALITY:
         return "cam/screener"
     if p.get("3d"):
         return "3D"
     res = p.get("resolution")
-    allowed = PRESET_RES[prof.preset]
-    if res and res not in allowed:
-        return f"resolution {res}"
-    if not res and prof.preset == "4k":
-        return "unknown resolution"
+    if not resolution_ok(res, prof):
+        return f"resolution {res or 'unknown'} (want {prof.resolution_wanted} {prof.max_resolution})"
+    if not prof.enable_hdr and p.get("hdr"):
+        return "HDR (disabled)"
 
-    # --- size (per episode for packs) -------------------------------------
     n = _episodes_in(r, q)
     per = r.size_gb / n if r.size_gb and n else r.size_gb
-    if prof.min_size_gb and per and per < prof.min_size_gb:
-        return f"too small ({per:.2f} GB)"
+    p["_per_item_gb"] = per
+    if prof.min_size_gb and per < prof.min_size_gb:
+        return f"too small ({per:.2f} GB, min {prof.min_size_gb})"
     if prof.max_size_gb and per > prof.max_size_gb:
-        return f"too big ({per:.2f} GB)"
+        return f"too big ({per:.2f} GB, max {prof.max_size_gb})"
+    br = bitrate_mbps(per, q.runtime)
+    p["_bitrate"] = br
+    if br:
+        if prof.min_bitrate_mbps and br < prof.min_bitrate_mbps:
+            return f"bitrate too low ({br:.1f} Mbps, min {prof.min_bitrate_mbps:g})"
+        if prof.max_bitrate_mbps and br > prof.max_bitrate_mbps:
+            return f"bitrate too high ({br:.1f} Mbps, max {prof.max_bitrate_mbps:g})"
 
-    # --- words and language ------------------------------------------------
-    hit = _words_hit(r.title, prof.never_contain)
-    if hit:
-        return f"contains '{hit}'"
-    if prof.must_contain and not _words_hit(r.title, prof.must_contain):
-        return "missing required word"
-    langs = p.get("languages") or []
-    if prof.language and langs and prof.language not in langs and not p.get("dubbed"):
-        return f"language {','.join(langs)}"
+    for f in prof.filter_out:
+        if _applies(f.source, r.protocol) and smart_search(f.pattern, r.title):
+            return f"filter out: {f.pattern}"
+    ins = [f for f in prof.filter_in if _applies(f.source, r.protocol)]
+    if ins and not any(smart_search(f.pattern, r.title) for f in ins):
+        return "no filter-in match"
     return ""
 
 

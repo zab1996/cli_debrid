@@ -43,6 +43,11 @@ def _show_extra(db: DB, tmdb_id: int) -> tuple[list[str], bool, str | None]:
     return json.loads(r["aliases"] or "[]"), bool(r["is_anime"]), r["original_title"]
 
 
+def _runtime(db: DB, item: Item) -> int:
+    rows = db.query("SELECT runtime FROM items WHERE id=?", (item.id,))
+    return int(rows[0]["runtime"] or 0) if rows else 0
+
+
 def query_for(db: DB, item: Item) -> Query:
     if item.kind == "movie":
         extra = db.query("SELECT value FROM meta_cache WHERE key=?", (f"tmdb:movie:{item.tmdb_id}",))
@@ -52,13 +57,14 @@ def query_for(db: DB, item: Item) -> Query:
             if m.get("original_title") and m["original_title"] != item.title:
                 aliases.append(m["original_title"])
         return Query(kind="movie", title=item.title, year=item.year, imdb_id=item.imdb_id,
-                     tmdb_id=item.tmdb_id, aliases=aliases)
+                     tmdb_id=item.tmdb_id, aliases=aliases, runtime=_runtime(db, item))
     aliases, anime, orig = _show_extra(db, item.tmdb_id)
     if orig and orig != item.title:
         aliases = [orig, *aliases]
     return Query(kind="episode", title=item.title, year=item.year, imdb_id=item.imdb_id,
                  tmdb_id=item.tmdb_id, tvdb_id=item.tvdb_id, season=item.season,
-                 episode=item.episode, absolute=item.absolute, aliases=aliases, is_anime=anime)
+                 episode=item.episode, absolute=item.absolute, aliases=aliases, is_anime=anime,
+                 runtime=_runtime(db, item))
 
 
 def season_episode_count(db: DB, tmdb_id: int, season: int) -> int:

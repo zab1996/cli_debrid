@@ -48,14 +48,6 @@
   </div>
   {% endfor %}
 </fieldset>
-<fieldset>
-  <legend>Mount</legend>
-  <div class="row">
-    <label class="grow">Mount path <input name="mount.path" value="{{ c.mount.path }}"></label>
-    <label class="narrow">Cache (GB) <input name="mount.cache_size_gb" type="number" value="{{ c.mount.cache_size_gb }}"></label>
-  </div>
-  <p class="hint">Where your media appears. Plex must be able to see this path.</p>
-</fieldset>
 {% endmacro %}
 
 {% macro indexers(c, indexer_types) %}
@@ -73,6 +65,7 @@
     </label>
     <label class="grow">URL <input name="indexers-{{ i }}-url" value="{{ x.url if x else '' }}" placeholder="http://prowlarr:9696"></label>
     <label class="grow">API key <input type="password" class="secret" name="indexers-{{ i }}-api_key" value="{{ x.api_key if x else '' }}" autocomplete="off"></label>
+    <label class="narrow">Priority <input name="indexers-{{ i }}-priority" type="number" step="1" value="{{ (x.priority if x else 0) | int }}" title="Added to every result's score from this indexer (1.x scraper priority)"></label>
     <label class="check"><input type="checkbox" name="indexers-{{ i }}-enabled" {{ 'checked' if (not x or x.enabled) }}> On</label>
     {{ test_button("indexers-" ~ i) }}
   </div>
@@ -80,7 +73,7 @@
 </fieldset>
 {% endmacro %}
 
-{% macro library(c, presets) %}
+{% macro library(c) %}
 <fieldset>
   <legend>Library</legend>
   <div class="row">
@@ -102,24 +95,6 @@
   </div>
   {{ test_button("plex") }}
   <p class="hint">Used to scan new files in, read your watchlist, and replace files people report with "Report issue".</p>
-</fieldset>
-<fieldset>
-  <legend>Quality</legend>
-  <div class="row">
-    <label>Profile
-      <select name="quality.preset">
-        {% for k, v in presets.items() %}<option value="{{ k }}" {{ 'selected' if c.quality.preset == k }}>{{ v }}</option>{% endfor %}
-      </select>
-    </label>
-    <label class="narrow">Language <input name="quality.language" value="{{ c.quality.language }}" placeholder="en"></label>
-    <label class="narrow">Min GB <input name="quality.min_size_gb" type="number" step="0.1" value="{{ c.quality.min_size_gb }}"></label>
-    <label class="narrow">Max GB <input name="quality.max_size_gb" type="number" step="0.1" value="{{ c.quality.max_size_gb }}"></label>
-  </div>
-  <p class="hint">Sizes are per episode for shows. 0 = no limit.</p>
-  <div class="row">
-    <label class="grow">Never contains <input name="quality.never_contain" value="{{ c.quality.never_contain | join(', ') }}" placeholder="HDCAM, 3D"></label>
-    <label class="grow">Must contain <input name="quality.must_contain" value="{{ c.quality.must_contain | join(', ') }}"></label>
-  </div>
 </fieldset>
 {% endmacro %}
 
@@ -178,4 +153,150 @@
   </div>
   {% endfor %}
 </fieldset>
+{% endmacro %}
+
+{% macro res_fields(prefix, v) %}
+  <label>Max resolution
+    <select name="{{ prefix }}.max_resolution">{% for r in ('2160p', '1080p', '720p', 'SD') %}<option {{ 'selected' if v.max_resolution == r }}>{{ r }}</option>{% endfor %}</select>
+  </label>
+  <label class="narrow">Wanted
+    <select name="{{ prefix }}.resolution_wanted">{% for w in ('==', '<=', '>=') %}<option {{ 'selected' if v.resolution_wanted == w }}>{{ w }}</option>{% endfor %}</select>
+  </label>
+  <label class="narrow">Min GB <input name="{{ prefix }}.min_size_gb" type="number" step="0.01" value="{{ v.min_size_gb }}"></label>
+  <label class="narrow">Max GB <input name="{{ prefix }}.max_size_gb" type="number" step="0.01" value="{{ v.max_size_gb }}" title="0 = no limit"></label>
+  <label class="narrow">Min Mbps <input name="{{ prefix }}.min_bitrate_mbps" type="number" step="0.1" value="{{ v.min_bitrate_mbps }}"></label>
+  <label class="narrow">Max Mbps <input name="{{ prefix }}.max_bitrate_mbps" type="number" step="0.1" value="{{ v.max_bitrate_mbps }}" title="0 = no limit"></label>
+{% endmacro %}
+
+{% macro version(c) %}
+{% set v = c.quality %}
+<input type="hidden" name="version-present" value="1">
+<fieldset>
+  <legend>Version <span class="opt">same rules as cli_debrid 1.x versions</span></legend>
+  <div class="row">
+    <label class="grow">Name <input name="quality.name" value="{{ v.name }}"></label>
+    <label class="check"><input type="checkbox" name="quality.enable_hdr" {{ 'checked' if v.enable_hdr }}> Allow HDR</label>
+    <label class="narrow">Similarity <input name="quality.similarity_threshold" type="number" step="0.01" min="0" max="1" value="{{ v.similarity_threshold }}"></label>
+    <label class="narrow">Language <input name="quality.language" value="{{ v.language }}" placeholder="en"></label>
+  </div>
+  <div class="row">{{ res_fields('quality', v) }}</div>
+  <p class="hint">Sizes and bitrates are per movie / per episode. Bitrate uses the title's runtime from TMDB/TVDB.</p>
+</fieldset>
+<fieldset>
+  <legend>Filters</legend>
+  <div class="row">
+    <label class="grow">Filter out (one per line)
+      <textarea name="quality.filter_out" rows="8">{% for f in v.filter_out %}{{ f.pattern }}{% if f.source != 'both' %}  [{{ f.source }}]{% endif %}
+{% endfor %}</textarea></label>
+    <label class="grow">Filter in (one per line; if any, a release must match one)
+      <textarea name="quality.filter_in" rows="8">{% for f in v.filter_in %}{{ f.pattern }}{% if f.source != 'both' %}  [{{ f.source }}]{% endif %}
+{% endfor %}</textarea></label>
+  </div>
+  <p class="hint">Regex (case-insensitive) or "quoted text". Add <code>[nzb]</code> or <code>[debrid]</code> at the end to apply to one source only.</p>
+  <div class="row">
+    <label class="grow">Preferred: bonus (<code>weight | pattern</code>)
+      <textarea name="quality.preferred_filter_in" rows="4">{% for f in v.preferred_filter_in %}{{ f.weight | int }} | {{ f.pattern }}
+{% endfor %}</textarea></label>
+    <label class="grow">Preferred: penalty (<code>weight | pattern</code>)
+      <textarea name="quality.preferred_filter_out" rows="4">{% for f in v.preferred_filter_out %}{{ f.weight | int }} | {{ f.pattern }}
+{% endfor %}</textarea></label>
+  </div>
+</fieldset>
+<fieldset>
+  <legend>Scoring weights</legend>
+  <div class="row">
+    {% for k, label in [('resolution_weight', 'Resolution'), ('hdr_weight', 'HDR'), ('similarity_weight', 'Similarity'), ('size_weight', 'Size'), ('bitrate_weight', 'Bitrate'), ('year_match_weight', 'Year match'), ('language_weight', 'Language')] %}
+    <label class="narrow">{{ label }} <input name="quality.{{ k }}" type="number" step="0.1" value="{{ v[k] }}"></label>
+    {% endfor %}
+    <label class="narrow">Foreign lang. penalty <input name="quality.foreign_language_penalty" type="number" value="{{ v.foreign_language_penalty | int }}"></label>
+    <label class="narrow">Audio desc. penalty <input name="quality.audio_description_penalty" type="number" value="{{ v.audio_description_penalty | int }}"></label>
+  </div>
+</fieldset>
+<fieldset>
+  <legend>Fallback version</legend>
+  <div class="row">
+    <label class="check"><input type="checkbox" name="fallback.enabled" {{ 'checked' if v.fallback }}> Use a fallback when nothing passes</label>
+    <label class="grow">Name <input name="fallback.name" value="{{ v.fallback.name if v.fallback else '720 and below' }}"></label>
+  </div>
+  <div class="row">{{ res_fields('fallback', v.fallback or {'max_resolution': '720p', 'resolution_wanted': '<=', 'min_size_gb': 0.4, 'max_size_gb': 0, 'min_bitrate_mbps': 0, 'max_bitrate_mbps': 18}) }}</div>
+  <p class="hint">Uses the same filters and weights as the main version; only these limits change.</p>
+</fieldset>
+{% endmacro %}
+
+{% macro mount_path(c) %}
+<fieldset>
+  <legend>Mount</legend>
+  <div class="row">
+    <label class="grow">Mount path <input name="mount.path" value="{{ c.mount.path }}"></label>
+    <label class="narrow">Disk cache <input name="mount.disk_cache_size" value="{{ c.mount.disk_cache_size }}" placeholder="100GB"></label>
+  </div>
+  <p class="hint">Where your media appears; Plex must be able to see this path. More options in Settings → Mount.</p>
+</fieldset>
+{% endmacro %}
+
+{% macro mount(c, mount_defaults) %}
+{% set m = c.mount %}
+<input type="hidden" name="mount-present" value="1">
+<fieldset>
+  <legend>Mount path</legend>
+  <div class="row"><label class="grow">Path <input name="mount.path" value="{{ m.path }}"></label></div>
+  <p class="hint">Where your media appears. Plex must be able to see this path. Changing anything on this page restarts the mount engine.</p>
+</fieldset>
+<fieldset>
+  <legend>DFS cache</legend>
+  <div class="row">
+    <label>Disk cache size <input name="mount.disk_cache_size" value="{{ m.disk_cache_size }}" placeholder="100GB"></label>
+    <label>Cache expiry <input name="mount.cache_expiry" value="{{ m.cache_expiry }}" placeholder="2h"></label>
+    <label>Cleanup interval <input name="mount.cache_cleanup_interval" value="{{ m.cache_cleanup_interval }}" placeholder="1m"></label>
+  </div>
+  <p class="hint">Sizes like <code>512MB</code>, <code>100GB</code>; times like <code>30s</code>, <code>5m</code>, <code>2h</code>.</p>
+</fieldset>
+<fieldset>
+  <legend>DFS streaming</legend>
+  <div class="row">
+    <label>Chunk size <input name="mount.chunk_size" value="{{ m.chunk_size }}" placeholder="8MB"></label>
+    <label>Read-ahead <input name="mount.read_ahead_size" value="{{ m.read_ahead_size }}" placeholder="32MB"></label>
+    <label>Buffer memory <input name="mount.buffer_memory" value="{{ m.buffer_memory }}" placeholder="engine default (512MB)"></label>
+  </div>
+  <div class="row">
+    <label class="check"><input type="checkbox" name="mount.prewarm_next_episode" {{ 'checked' if m.prewarm_next_episode }}> Prewarm the next episode while watching (uses your Plex settings)</label>
+  </div>
+</fieldset>
+<fieldset>
+  <legend>Usenet streaming</legend>
+  <div class="row">
+    <label class="narrow">Connections per stream <input name="mount.usenet_max_connections" type="number" value="{{ m.usenet_max_connections }}"></label>
+    <label class="narrow">Connections per import <input name="mount.usenet_processing_connections" type="number" value="{{ m.usenet_processing_connections }}"></label>
+    <label>Read-ahead <input name="mount.usenet_read_ahead" value="{{ m.usenet_read_ahead }}" placeholder="16MB"></label>
+    <label>Buffer memory <input name="mount.usenet_buffer_memory" value="{{ m.usenet_buffer_memory }}" placeholder="1GB"></label>
+  </div>
+  <div class="row">
+    <label class="check"><input type="checkbox" name="mount.usenet_interactive_reserve" {{ 'checked' if m.usenet_interactive_reserve }}> Reserve connections for playback</label>
+    <label class="narrow">Reserve % <input name="mount.usenet_interactive_reserve_percent" type="number" value="{{ m.usenet_interactive_reserve_percent }}"></label>
+    <label class="narrow">Import timeout <input name="mount.usenet_processing_timeout" value="{{ m.usenet_processing_timeout }}" placeholder="5m"></label>
+    <label class="narrow">Health sample % <input name="mount.usenet_availability_sample_percent" type="number" value="{{ m.usenet_availability_sample_percent }}"></label>
+    <label>Deobfuscate names
+      <select name="mount.usenet_deobfuscate_mode">{% for k in ('season_ep', 'full', 'none') %}<option {{ 'selected' if m.usenet_deobfuscate_mode == k }}>{{ k }}</option>{% endfor %}</select>
+    </label>
+  </div>
+</fieldset>
+<fieldset>
+  <legend>Files on the mount</legend>
+  <div class="row">
+    <label class="narrow">UID <input name="mount.uid" type="number" value="{{ m.uid }}"></label>
+    <label class="narrow">GID <input name="mount.gid" type="number" value="{{ m.gid }}"></label>
+    <label class="narrow">Umask <input name="mount.umask" value="{{ m.umask }}"></label>
+  </div>
+</fieldset>
+<button type="button" class="btn small" id="mountDefaults">Reset this page to defaults</button>
+<script>
+document.getElementById('mountDefaults')?.addEventListener('click', () => {
+  const d = {{ mount_defaults | tojson }};
+  for (const [k, v] of Object.entries(d)) {
+    const el = document.querySelector(`[name="mount.${k}"]`);
+    if (!el || k === 'path') continue;
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+  }
+});
+</script>
 {% endmacro %}

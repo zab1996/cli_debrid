@@ -58,7 +58,7 @@
       rows.map(r => `<tr class="${r.reject ? 'rejected' : ''}">
         <td><div class="rname">${esc(r.title)}</div>
           <div class="rtags">${tag(r.resolution, 'res')}${tag(r.source)}${tag(r.codec)}${tag(r.hdr, 'hdr')}${tag(r.audio)}${tag(r.languages)}
-            ${r.cached ? tag('cached', 'ok') : ''}${r.current ? tag('in use', 'ok') : ''}${r.before && !r.current ? tag('tried: ' + r.before, 'warn') : ''}
+            ${r.version ? tag('fallback: ' + r.version, 'warn') : ''}${r.cached ? tag('cached', 'ok') : ''}${r.current ? tag('in use', 'ok') : ''}${r.before && !r.current ? tag('tried: ' + r.before, 'warn') : ''}
             ${r.reject ? tag(r.reject, 'bad') : ''}</div></td>
         <td class="mono hide-sm">${r.size_gb ? r.size_gb.toFixed(1) + ' GB' : '?'}</td>
         <td class="small hide-sm"><span class="proto ${r.protocol}">${r.protocol === 'nzb' ? 'usenet' : 'torrent'}</span><br><span class="muted">${esc(r.indexer)}${r.protocol === 'torrent' && r.seeders ? ' · ' + r.seeders + ' seeds' : ''}</span></td>

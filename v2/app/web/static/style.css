@@ -369,3 +369,7 @@ form:not(.selecting) .libgrid.list .libitem { grid-template-columns: 0 46px 1fr;
   .pscroll { grid-auto-columns: 120px; }
   .libgrid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 }
+textarea { width: 100%; padding: 9px 12px; background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px; color: var(--text); font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; margin-top: 4px; }
+textarea:focus { outline: none; border-color: rgba(255, 107, 53, .6); }
+code { font-family: var(--mono); font-size: 11px; background: var(--surf3); padding: 0 4px; border-radius: 4px; }

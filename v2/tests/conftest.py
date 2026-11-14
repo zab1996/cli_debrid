@@ -62,3 +62,13 @@ def fake_tmdb(monkeypatch):
     return shows
 
 
+
+
+def plain_profile(**kw):
+    """A version with every filter off (tests that aren't about version rules)."""
+    from app.config import QualityConfig
+    base = dict(name="plain", max_resolution="2160p", resolution_wanted="<=", enable_hdr=True,
+                min_size_gb=0, max_size_gb=0, min_bitrate_mbps=0, max_bitrate_mbps=0,
+                filter_out=[], filter_in=[], preferred_filter_out=[], fallback=None)
+    base.update(kw)
+    return QualityConfig(**base)

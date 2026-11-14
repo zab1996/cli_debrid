@@ -184,6 +184,8 @@ class DB:
     ADDED_COLUMNS = [
         ("items", "poster", "TEXT"),
         ("shows", "poster", "TEXT"),
+        ("items", "runtime", "INTEGER"),
+        ("shows", "runtime", "INTEGER"),
     ]
 
     def _migrate(self) -> None:
@@ -219,7 +221,8 @@ class DB:
                  release_date: str | None = None, source: str | None = None,
                  tvdb_id: int | None = None, imdb_id: str | None = None,
                  absolute: int | None = None, state: State = State.WANTED,
-                 next_attempt_at: float | None = None, poster: str | None = None) -> int | None:
+                 next_attempt_at: float | None = None, poster: str | None = None,
+                 runtime: int | None = None) -> int | None:
         """Insert an item. Returns its id, or None if it already exists."""
         now = time.time()
         with self.tx() as c:
@@ -232,10 +235,10 @@ class DB:
                 return None
             cur = c.execute(
                 "INSERT INTO items(kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode,"
-                " absolute, state, release_date, next_attempt_at, source, added_at, updated_at, poster)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " absolute, state, release_date, next_attempt_at, source, added_at, updated_at, poster,"
+                " runtime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode, absolute,
-                 state.value, release_date, next_attempt_at, source, now, now, poster),
+                 state.value, release_date, next_attempt_at, source, now, now, poster, runtime),
             )
             return cur.lastrowid
 

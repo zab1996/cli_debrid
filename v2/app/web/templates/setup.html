@@ -17,12 +17,13 @@
   {% elif step == 'downloads' %}
     <p>Where content streams from. Use a debrid service, usenet, or both. Everything is mounted at one path.</p>
     {{ f.downloads(c, debrids) }}
+    {{ f.mount_path(c) }}
   {% elif step == 'indexers' %}
     <p>Where to search. Torrentio works with no setup; add Prowlarr/Jackett/Zilean or a Newznab indexer if you have them.</p>
     {{ f.indexers(c, indexer_types) }}
   {% else %}
     <p>Where your library lives, how good it should be, and (optionally) Plex and lists to follow.</p>
-    {{ f.library(c, presets) }}
+    {{ f.library(c) }}
     {{ f.sources(c, source_types) }}
   {% endif %}
   <div class="row">

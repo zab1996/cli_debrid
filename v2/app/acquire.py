@@ -19,7 +19,7 @@ from .downloads import engine
 from .library import match, plex, symlink
 from .models import MAX_EMPTY_SEARCHES, Item, State, next_backoff
 from .ranking import Release
-from .ranking.score import score
+from .ranking.score import CACHED_BONUS
 from .scrapers import magnet_for
 
 log = logging.getLogger("clid2.acquire")
@@ -44,11 +44,10 @@ async def _mark_cached(results: list[Release], q) -> None:
     except engine.EngineError as e:
         log.debug("cache check failed: %s", e)
         return
-    prof = config.get().quality
     for r in results:
-        if r.protocol == "torrent" and cached.get(r.info_hash):
+        if r.protocol == "torrent" and cached.get(r.info_hash) and not r.cached:
             r.cached = True
-            r.score = score(r, q, prof)
+            r.score += CACHED_BONUS
     results.sort(key=lambda r: r.score, reverse=True)
 
 

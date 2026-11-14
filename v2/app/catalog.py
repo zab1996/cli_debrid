@@ -59,7 +59,8 @@ async def add_movie(db: DB, tmdb_id: int, source: str = "manual") -> int | None:
     state, nxt = initial_state(m["release_date"], "movie")
     item_id = db.add_item(kind="movie", tmdb_id=tmdb_id, imdb_id=m["imdb_id"], title=m["title"],
                           year=m["year"], release_date=m["release_date"], source=source,
-                          state=state, next_attempt_at=nxt, poster=m.get("poster"))
+                          state=state, next_attempt_at=nxt, poster=m.get("poster"),
+                          runtime=m.get("runtime") or None)
     if item_id:
         db.log_event(f"Added movie {m['title']} ({m['year']})", item_id)
         log.info("[item %s %s (%s)] added movie: tmdb %s imdb %s, home release %s -> %s%s, source %s",
@@ -112,11 +113,12 @@ async def add_show(db: DB, tmdb_id: int, seasons: list[int] | None = None,
         if row is None:
             c.execute(
                 "INSERT INTO shows(tmdb_id, tvdb_id, imdb_id, title, original_title, year, aliases,"
-                " is_anime, status, seasons, source, added_at, poster)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " is_anime, status, seasons, source, added_at, poster, runtime)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (tmdb_id, info["tvdb_id"], info["imdb_id"], info["title"], info["original_title"],
                  info["year"], json.dumps(info["aliases"]), int(info["is_anime"]), info["status"],
-                 json.dumps(seasons) if seasons else None, source, now, info.get("poster")),
+                 json.dumps(seasons) if seasons else None, source, now, info.get("poster"),
+                 info.get("runtime") or None),
             )
         elif row["seasons"] is not None:
             # Widen an existing partial request.
@@ -162,6 +164,7 @@ async def sync_show(db: DB, tmdb_id: int) -> int:
                 title=info["title"], year=info["year"], season=sn, episode=e["episode"],
                 absolute=e.get("absolute"), release_date=e.get("air_date"),
                 source=show["source"], state=state, next_attempt_at=nxt,
+                runtime=e.get("runtime") or info.get("runtime") or None,
             )
             if new_id:
                 added += 1
@@ -197,7 +200,23 @@ def _refresh_waiting_episode(db: DB, tmdb_id: int, season: int, e: dict) -> None
 
 
 async def backfill_posters(db: DB, limit: int = 25) -> None:
-    """Fill in posters for titles added before posters were stored."""
+    """Fill in posters/runtimes for titles added before those were stored."""
+    for r in db.query("SELECT DISTINCT kind, tmdb_id FROM items WHERE runtime IS NULL LIMIT ?", (limit,)):
+        try:
+            if r["kind"] == "movie":
+                m = await tmdb.movie(db, r["tmdb_id"])
+                rt = m.get("runtime") or 0
+            else:
+                info = await tmdb.show(db, r["tmdb_id"])
+                if "runtime" not in info:
+                    cache.drop(db, f"tmdb:show:{r['tmdb_id']}")
+                    info = await tmdb.show(db, r["tmdb_id"])
+                rt = info.get("runtime") or 0
+        except Exception:
+            continue
+        with db.tx() as c:
+            c.execute("UPDATE items SET runtime=? WHERE kind=? AND tmdb_id=? AND runtime IS NULL",
+                      (rt, r["kind"], r["tmdb_id"]))
     for r in db.query("SELECT DISTINCT tmdb_id FROM items WHERE kind='movie' AND poster IS NULL"
                       " LIMIT ?", (limit,)):
         try:
