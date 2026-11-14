@@ -47,3 +47,13 @@ def test_missing_binary_is_dev_mode(tmp_path):
         assert not p.available and not p.running
         await p.stop()
     asyncio.run(go())
+
+
+def test_only_fuse_mounts_are_unmounted():
+    info = (
+        "10292 10279 259:1 /x /media/a\\040b/mnt rw,relatime - ext4 /dev/nvme0n1p1 rw\n"
+        "10112 10279 0:151 / /media/a\\040b/fuse rw shared:1 - fuse.decypharr decypharr rw\n"
+    )
+    assert not engine_proc.is_fuse_mount("/media/a b/mnt", info)       # bind mount: leave it
+    assert engine_proc.is_fuse_mount("/media/a b/fuse/", info)
+    assert not engine_proc.is_fuse_mount("/elsewhere", info)

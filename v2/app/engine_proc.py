@@ -126,9 +126,34 @@ class EngineProcess:
         lazy_unmount(config.get().mount.path)
 
 
+def is_fuse_mount(path: str, mountinfo: str | None = None) -> bool:
+    """True if `path` is the mount point of a FUSE filesystem.
+
+    Only FUSE mounts are ever unmounted: when running as root, unmounting a
+    plain bind mount at this path would cut the mount off from the host.
+    """
+    if not path:
+        return False
+    if mountinfo is None:
+        try:
+            mountinfo = Path("/proc/self/mountinfo").read_text()
+        except OSError:
+            return False
+    target = os.path.normpath(path)
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        if len(fields) < 5 or "-" not in fields:
+            continue
+        mp = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[4])
+        fstype = fields[fields.index("-") + 1] if fields.index("-") + 1 < len(fields) else ""
+        if mp == target and fstype.startswith("fuse"):
+            return True
+    return False
+
+
 def lazy_unmount(path: str) -> None:
     """Clear a dead FUSE mount so the next start can mount again."""
-    if not path or not os.path.ismount(path):
+    if not is_fuse_mount(path):
         return
     for cmd in (["fusermount3", "-uz", path], ["fusermount", "-uz", path], ["umount", "-l", path]):
         if shutil.which(cmd[0]):

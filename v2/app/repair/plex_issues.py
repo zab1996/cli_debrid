@@ -118,7 +118,7 @@ def start_replace(db: DB, item_id: int, reason: str) -> bool:
 
 async def process(db: DB) -> None:
     c = config.get().plex
-    if not (c.url and c.token):
+    if not (c.url and c.token) or not config.get().adv("plex_reported_issues", True):
         return
     reports = await fetch_reports(c.token)
     known = {r["id"] for r in db.query("SELECT id FROM plex_reports")}

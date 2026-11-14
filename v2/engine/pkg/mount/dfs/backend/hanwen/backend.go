@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -73,8 +76,12 @@ func (b *Backend) Mount(ctx context.Context) error {
 	}
 
 	_ = os.MkdirAll(b.config.MountPath, 0755)
-	// Try to unmount if already mounted
-	b.forceUnmount(ctx)
+	// Clear a stale FUSE mount left by a previous run. Only FUSE: when running
+	// as root, a plain `umount` would otherwise remove a container bind mount
+	// sitting at this path and break propagation to the host.
+	if isFuseMountPoint(b.config.MountPath) {
+		b.forceUnmount(ctx)
+	}
 
 	mountOpt := fuse.MountOptions{
 		FsName:               "decypharr",
@@ -83,7 +90,7 @@ func (b *Backend) Mount(ctx context.Context) error {
 		DisableXAttrs:        true,
 		IgnoreSecurityLabels: true,
 		MaxWrite:             1024 * 1024,
-		AllowOther: true,
+		AllowOther:           true,
 	}
 
 	var opt []string
@@ -288,4 +295,49 @@ func (b *Backend) tryUnmountCommand(ctx context.Context, args ...string) error {
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	return cmd.Run()
+}
+
+// isFuseMountPoint reports whether path is currently the mount point of a
+// FUSE filesystem, according to /proc/self/mountinfo.
+func isFuseMountPoint(path string) bool {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	clean := filepath.Clean(path)
+	for _, line := range strings.Split(string(data), "\n") {
+		// "<id> <parent> <maj:min> <root> <mountpoint> <opts> [optional...] - <fstype> <source> <superopts>"
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		if unescapeMountinfo(fields[4]) != clean {
+			continue
+		}
+		for i, f := range fields {
+			if f == "-" && i+1 < len(fields) && strings.HasPrefix(fields[i+1], "fuse") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// unescapeMountinfo decodes the octal escapes (\040 for space etc.) used in mountinfo.
+func unescapeMountinfo(s string) string {
+	if !strings.Contains(s, "\\") {
+		return s
+	}
+	var out strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+3 < len(s) {
+			if v, err := strconv.ParseUint(s[i+1:i+4], 8, 8); err == nil {
+				out.WriteByte(byte(v))
+				i += 3
+				continue
+			}
+		}
+		out.WriteByte(s[i])
+	}
+	return out.String()
 }
