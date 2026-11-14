@@ -44,6 +44,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", s.status)
 	mux.HandleFunc("GET /cache", s.cache)
+	mux.HandleFunc("GET /streams", s.streams)
 	mux.HandleFunc("POST /add", s.add)
 	mux.HandleFunc("GET /entries/{id}", s.getEntry)
 	mux.HandleFunc("DELETE /entries/{id}", s.deleteEntry)
@@ -143,6 +144,20 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		"usenet":     s.mgr.HasUsenet(),
 		"uptime_s":   int(s.mgr.Uptime().Seconds()),
 	})
+}
+
+// GET /streams -> files being read through the mount right now, plus usenet
+// connection usage, for the home page.
+func (s *Server) streams(w http.ResponseWriter, r *http.Request) {
+	streams := s.mgr.GetActiveStreams()
+	sort.Slice(streams, func(i, j int) bool { return streams[i].StartedAt > streams[j].StartedAt })
+	out := map[string]any{"streams": streams}
+	if us := s.mgr.UsenetStats(); us != nil {
+		if pool, ok := us["pool"].(map[string]interface{}); ok {
+			out["usenet"] = map[string]any{"active": pool["active"], "max": pool["max_connections"]}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // GET /cache?hashes=a,b -> {"a": true, "b": false}. A hash is cached if any

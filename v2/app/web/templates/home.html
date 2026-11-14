@@ -12,12 +12,25 @@
     {% for p in engine.providers or [] %}<span class="tb-pill"><span class="dot ok"></span><span class="tb-val">{{ p }}</span></span>{% endfor %}
     {% if engine.usenet %}<span class="tb-pill"><span class="dot ok"></span><span class="tb-val">Usenet</span></span>{% endif %}
   {% endif %}
+  {% if mount %}
+    <span class="tb-pill" title="Files being read through the mount right now">Streams: <span class="tb-val" id="tbStreams">{{ mount.streams | length }}</span></span>
+    {% if mount.usenet %}<span class="tb-pill" title="Usenet connections in use / allowed">Connections: <span class="tb-val" id="tbConns">{{ mount.usenet.active }} / {{ mount.usenet.max }}</span></span>{% endif %}
+  {% endif %}
   <span class="tb-sep"></span>
-  {% for s in ('Searching', 'Downloading', 'Wanted', 'Waiting', 'Failed') %}
-    <a class="tb-pill" href="/queues#{{ s }}">{{ s }}: <span class="tb-val">{{ counts[s] }}</span></a>
-  {% endfor %}
+  {% set busy = counts['Searching'] + counts['Downloading'] %}
+  <a class="tb-pill tb-btn" href="/queues">Queues{% if busy %} <span class="tb-val">· {{ busy }} active</span>{% endif %}{% if counts['Failed'] %} <span class="tb-val bad">· {{ counts['Failed'] }} failed</span>{% endif %} →</a>
   <span class="tb-sep"></span>
   <span class="tb-pill">Uptime: <span class="tb-val">{{ uptime | duration }}</span></span>
+</div>
+
+<div class="box streams" id="nowStreaming"{% if not (mount and mount.streams) %} hidden{% endif %}>
+  <h3>Now Streaming</h3>
+  <ul class="rows" id="streamRows">
+    {% for st in mount.streams or [] %}
+    <li><span class="ttl fname" title="{{ st.file }}">{{ st.file }}</span>
+      <span class="when">{% if st.source %}<span class="tag">{{ 'usenet' if st.source == 'nzb' else 'debrid' }}</span> {% endif %}{{ st['for'] | duration }}</span></li>
+    {% endfor %}
+  </ul>
 </div>
 
 {% if problems %}<div class="notice bad">{% for p in problems %}<div>{{ p }}</div>{% endfor %}</div>{% endif %}
@@ -62,30 +75,26 @@
   <div class="box">
     <h3>Recently Added Movies <a class="link" href="/library">Library →</a></h3>
     {% if recent_movies %}
-    <div class="posters">
+    <ul class="rows files">
       {% for m in recent_movies %}
-      <a class="pcard" href="/item/{{ m.id }}">
-        {% if m.poster %}<img src="{{ m.poster }}" alt="" loading="lazy">{% else %}<div class="noimg">{{ m.title }}</div>{% endif %}
-        <div class="hover"><span class="t">{{ m.title }} ({{ m.year }})</span><span class="muted">{{ m.done_at | ago }}</span>
-          <span class="f">{{ m.release_name or '' }}</span></div>
-      </a>
+      <li><a href="/item/{{ m.id }}"><span class="t">{{ m.title }}{% if m.year %} ({{ m.year }}){% endif %}</span>
+        <span class="meta">{{ m.done_at | ago }}</span>
+        <span class="fname">{{ m.release_name or '' }}</span></a></li>
       {% endfor %}
-    </div>
+    </ul>
     {% else %}<div class="empty">No movies yet.</div>{% endif %}
   </div>
   <div class="box">
-    <h3>Recently Added Shows <a class="link" href="/library">Library →</a></h3>
-    {% if recent_shows %}
-    <div class="posters">
-      {% for s in recent_shows %}
-      <a class="pcard" href="/show/{{ s.tmdb_id }}">
-        {% if s.poster %}<img src="{{ s.poster }}" alt="" loading="lazy">{% else %}<div class="noimg">{{ s.title }}</div>{% endif %}
-        <div class="hover"><span class="t">{{ s.title }}</span><span class="muted">{{ s.eps }} episodes · latest {{ s.latest }}</span>
-          <span class="muted">{{ s.last_done | ago }}</span></div>
-      </a>
+    <h3>Recently Added Episodes <a class="link" href="/library">Library →</a></h3>
+    {% if recent_episodes %}
+    <ul class="rows files">
+      {% for e in recent_episodes %}
+      <li><a href="/item/{{ e.id }}"><span class="t">{{ e.title }}</span>
+        <span class="meta">S{{ '%02d' % e.season }}E{{ '%02d' % e.episode }} <span class="sep">•</span> {{ e.done_at | ago }}</span>
+        <span class="fname">{{ e.release_name or '' }}</span></a></li>
       {% endfor %}
-    </div>
-    {% else %}<div class="empty">No shows yet.</div>{% endif %}
+    </ul>
+    {% else %}<div class="empty">No episodes yet.</div>{% endif %}
   </div>
   <div class="box">
     <h3>Activity <a class="link" href="/logs">Logs →</a></h3>
@@ -99,4 +108,21 @@
     {% else %}<div class="empty">Nothing yet. <a href="/add">Add something</a>.</div>{% endif %}
   </div>
 </div>
+<script>
+(() => {
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const dur = (s) => { s = Math.floor(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return `${h}h ${m}m`; };
+  const tick = async () => {
+    let r; try { r = await (await fetch('/api/status')).json(); } catch (e) { return; }
+    const m = r.mount || {}, list = m.streams || [];
+    const n = document.getElementById('tbStreams'); if (n) n.textContent = list.length;
+    const c = document.getElementById('tbConns'); if (c && m.usenet) c.textContent = `${m.usenet.active} / ${m.usenet.max}`;
+    document.getElementById('nowStreaming').hidden = !list.length;
+    document.getElementById('streamRows').innerHTML = list.map((st) =>
+      `<li><span class="ttl fname" title="${esc(st.file)}">${esc(st.file)}</span><span class="when">` +
+      (st.source ? `<span class="tag">${st.source === 'nzb' ? 'usenet' : 'debrid'}</span> ` : '') + `${dur(st['for'])}</span></li>`).join('');
+  };
+  setInterval(tick, 10000);
+})();
+</script>
 {% endblock %}

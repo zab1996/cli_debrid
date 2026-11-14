@@ -74,6 +74,11 @@ async def status() -> dict:
     return await _call("GET", "/status") or {}
 
 
+async def streams() -> dict:
+    """Files being read through the mount right now + usenet connection use."""
+    return await _call("GET", "/streams") or {}
+
+
 async def cached(hashes: list[str]) -> dict[str, bool]:
     if not hashes:
         return {}

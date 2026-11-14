@@ -100,6 +100,22 @@ async def engine_summary(request: Request) -> dict:
     return out
 
 
+async def mount_summary(eng: dict) -> dict:
+    """Current streams + usenet connections; empty when the engine is down."""
+    if not eng.get("reachable"):
+        return {}
+    try:
+        r = await asyncio.wait_for(engine.streams(), 3)
+    except Exception:
+        return {}
+    now = time.time()
+    streams = [{"file": s.get("entry_name") or s.get("file_name") or "?",
+                "source": s.get("source") or "",
+                "for": max(0, now - (s.get("started_at") or now))}
+               for s in r.get("streams") or []]
+    return {"streams": streams, "usenet": r.get("usenet")}
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     if not config.configured(config.get()):
@@ -110,14 +126,11 @@ async def home(request: Request):
     week_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 7 * 86400))
     soon = time.strftime("%Y-%m-%d", time.localtime(time.time() + 14 * 86400))
     recent_movies = db.query(
-        "SELECT id, title, year, poster, release_name, done_at FROM items WHERE kind='movie'"
-        " AND state='Done' ORDER BY done_at DESC LIMIT 12")
-    recent_shows = db.query(
-        "SELECT s.tmdb_id, s.title, s.year, s.poster, MAX(i.done_at) last_done, COUNT(i.id) eps,"
-        " (SELECT season || 'x' || episode FROM items j WHERE j.kind='episode' AND j.tmdb_id=s.tmdb_id"
-        "  AND j.state='Done' ORDER BY j.done_at DESC LIMIT 1) latest"
-        " FROM shows s JOIN items i ON i.kind='episode' AND i.tmdb_id=s.tmdb_id AND i.state='Done'"
-        " GROUP BY s.tmdb_id ORDER BY last_done DESC LIMIT 12")
+        "SELECT id, title, year, release_name, done_at FROM items WHERE kind='movie'"
+        " AND state='Done' ORDER BY done_at DESC LIMIT 20")
+    recent_episodes = db.query(
+        "SELECT id, tmdb_id, title, season, episode, release_name, done_at FROM items"
+        " WHERE kind='episode' AND state='Done' ORDER BY done_at DESC LIMIT 20")
     aired = db.query(
         "SELECT id, title, season, episode, release_date, state FROM items WHERE kind='episode'"
         " AND release_date BETWEEN ? AND ? ORDER BY release_date DESC, title LIMIT 60",
@@ -136,9 +149,10 @@ async def home(request: Request):
         "shows": db.query("SELECT COUNT(*) n FROM shows")[0]["n"],
         "episodes": db.query("SELECT COUNT(*) n FROM items WHERE kind='episode' AND state='Done'")[0]["n"],
     }
+    eng = await engine_summary(request)
     return render(request, "home.html", counts=db.state_counts(), events=db.recent_events(40),
-                  engine=await engine_summary(request), problems=problems,
-                  recent_movies=recent_movies, recent_shows=recent_shows, aired=aired,
+                  engine=eng, mount=await mount_summary(eng), problems=problems,
+                  recent_movies=recent_movies, recent_episodes=recent_episodes, aired=aired,
                   airing_soon=airing_soon, upcoming_movies=upcoming_movies, library=library,
                   today=today,
                   uptime=time.time() - request.app.state.started_at)
@@ -849,7 +863,8 @@ def api_inbox_read(request: Request):
 @router.get("/api/status")
 async def api_status(request: Request):
     db = request.app.state.db
-    return {"counts": db.state_counts(), "engine": await engine_summary(request)}
+    eng = await engine_summary(request)
+    return {"counts": db.state_counts(), "engine": eng, "mount": await mount_summary(eng)}
 
 
 def _json(obj) -> str:
