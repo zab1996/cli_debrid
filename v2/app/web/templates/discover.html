@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% macro card(c) %}
+<a class="pcard dcard" href="/discover/{{ c.kind }}/{{ c.tmdb_id }}">
+  {% if c.poster %}<img src="{{ c.poster }}" alt="" loading="lazy">{% else %}<div class="noimg">{{ c.title }}</div>{% endif %}
+  {% if c.state %}<span class="corner tag {{ 'Done' if c.state in ('Done', 'In library') else c.state }}">{{ 'In library' if c.state == 'Done' else c.state }}</span>
+  {% elif c.blocked %}<span class="corner tag Failed">Blacklisted</span>{% endif %}
+  {% if c.rating %}<span class="rating">★ {{ c.rating }}</span>{% endif %}
+  <div class="hover">
+    <span class="t">{{ c.title }}</span>
+    <span class="muted">{{ c.year or '' }} · {{ 'Movie' if c.kind == 'movie' else 'TV' }}</span>
+    <span class="ov">{{ c.overview[:180] }}{{ '…' if c.overview | length > 180 }}</span>
+  </div>
+</a>
+{% endmacro %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Discover</h1><p class="sub">Find new content using TMDB-powered discovery</p></div>
+</div>
+<form class="search-hero" method="get" action="/discover">
+  <input name="q" value="{{ q }}" placeholder="Search movies and TV shows…" autofocus autocomplete="off">
+  {% if q %}<a class="btn" href="/discover">Clear</a>{% endif %}
+  <button class="btn primary">Search</button>
+</form>
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+
+{% if q %}
+  <div class="tabs"><button class="on" type="button">Results for “{{ q }}” <span class="muted">{{ results | length }}</span></button></div>
+  {% if results %}<div class="pgrid">{% for c in results %}{{ card(c) }}{% endfor %}</div>
+  {% else %}<div class="box"><div class="empty">No results.</div></div>{% endif %}
+{% else %}
+  <div class="tabs">
+    <a href="/discover" class="tablink {{ 'on' if not tab }}">All</a>
+    {% for key, label in tabs %}<a href="/discover?tab={{ key }}" class="tablink {{ 'on' if tab == key }}">{{ label }}</a>{% endfor %}
+  </div>
+  {% for row in rows %}
+  <div class="drow">
+    <div class="drow-head"><h2>{{ row.label }}</h2>{% if not tab %}<a class="link" href="/discover?tab={{ row.key }}">See all →</a>{% endif %}</div>
+    <div class="{{ 'pgrid' if tab else 'pscroll' }}">{% for c in row.cards %}{{ card(c) }}{% endfor %}</div>
+  </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

@@ -7,10 +7,11 @@
       <h1>{{ it.label }}</h1>
       <div class="actions">
         {% if it.state.value in ('Failed', 'Waiting') %}
-        <form method="post" action="/item/{{ it.id }}/retry"><button class="btn primary">Search now</button></form>
+        <form method="post" action="/item/{{ it.id }}/retry"><button class="btn">Search now</button></form>
         {% endif %}
+        <a class="btn primary" href="/releases?{{ manual_qs }}&back_to=/item/{{ it.id }}">{{ 'Find releases / replace' if it.state.value == 'Done' else 'Find releases' }}</a>
         {% if it.state.value == 'Done' %}
-        <form method="post" action="/item/{{ it.id }}/replace"><button class="btn">Replace file</button></form>
+        <form method="post" action="/item/{{ it.id }}/replace"><button class="btn">Auto replace</button></form>
         {% endif %}
         <form method="post" action="/item/{{ it.id }}/delete" data-confirm="Delete from the library?">
           <button class="btn danger">Delete</button></form>
@@ -18,7 +19,7 @@
           <button class="btn danger">Delete + blacklist{{ '' if it.kind == 'movie' else ' season' }}</button></form>
       </div>
     </div>
-    {% if it.kind == 'episode' %}<p style="margin-bottom:12px"><a href="/show/{{ it.tmdb_id }}">← {{ it.title }}</a></p>{% endif %}
+    <p style="margin-bottom:12px">{% if it.kind == 'episode' %}<a href="/show/{{ it.tmdb_id }}">← {{ it.title }}</a> · {% endif %}<a href="/discover/{{ 'movie' if it.kind == 'movie' else 'show' }}/{{ it.tmdb_id }}">Details</a></p>
 
     <div class="box">
       <h3>Details</h3>

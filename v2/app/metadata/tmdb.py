@@ -157,3 +157,60 @@ async def find_by_tvdb(db: DB, tvdb_id: int) -> dict | None:
         return {}
     r = await cached(db, f"tmdb:findtvdb:{tvdb_id}", 30 * DAY, fetch)
     return r or None
+
+
+BACKDROP = "https://image.tmdb.org/t/p/w1280"
+
+LISTS = {
+    "trending_movies": ("/trending/movie/week", "movie"),
+    "trending_shows": ("/trending/tv/week", "show"),
+    "popular_movies": ("/movie/popular", "movie"),
+    "popular_shows": ("/tv/popular", "show"),
+    "upcoming_movies": ("/movie/upcoming", "movie"),
+    "on_the_air": ("/tv/on_the_air", "show"),
+}
+
+
+def _card(r: dict, kind: str) -> dict:
+    d = r.get("release_date") if kind == "movie" else r.get("first_air_date")
+    return {
+        "kind": kind, "tmdb_id": r["id"], "title": r.get("title") or r.get("name") or "",
+        "year": _year(d), "date": d or "", "overview": r.get("overview", ""),
+        "rating": round(r.get("vote_average") or 0, 1),
+        "poster": f"{IMAGE}{r['poster_path']}" if r.get("poster_path") else None,
+    }
+
+
+async def browse(db: DB, name: str, page: int = 1) -> list[dict]:
+    """One of the Discover rows (trending, popular, upcoming, on the air)."""
+    path, kind = LISTS[name]
+
+    async def fetch():
+        d = await _get(path, page=page)
+        return [_card(r, kind) for r in d.get("results", [])]
+    return await cached(db, f"tmdb:list:{name}:{page}", 6 * HOUR, fetch)
+
+
+async def details(db: DB, kind: str, tmdb_id: int) -> dict:
+    """What the Discover details page shows (overview, backdrop, genres, seasons...)."""
+    path = f"/movie/{tmdb_id}" if kind == "movie" else f"/tv/{tmdb_id}"
+
+    async def fetch():
+        d = await _get(path, append_to_response="credits")
+        cast = [c.get("name") for c in (d.get("credits") or {}).get("cast", [])[:8] if c.get("name")]
+        out = _card(d, kind)
+        out.update({
+            "backdrop": f"{BACKDROP}{d['backdrop_path']}" if d.get("backdrop_path") else None,
+            "tagline": d.get("tagline") or "",
+            "genres": [g["name"] for g in d.get("genres", [])],
+            "runtime": d.get("runtime") or next(iter(d.get("episode_run_time") or []), 0),
+            "status": d.get("status", ""),
+            "cast": cast,
+            "seasons": [{"number": s["season_number"], "name": s.get("name", ""),
+                         "episodes": s.get("episode_count") or 0, "air_date": s.get("air_date") or "",
+                         "poster": f"{IMAGE}{s['poster_path']}" if s.get("poster_path") else None}
+                        for s in d.get("seasons", []) if s.get("season_number", 0) > 0],
+            "networks": [n["name"] for n in d.get("networks", [])],
+        })
+        return out
+    return await cached(db, f"tmdb:details:{kind}:{tmdb_id}", DAY, fetch)

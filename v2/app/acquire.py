@@ -95,7 +95,7 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
         log.info("%s trying #%d (%s, %.1fGB, score %.1f, %s): %s", tag, n, r.protocol, r.size_gb,
                  r.score, r.indexer, r.title)
         try:
-            engine_id = await _submit(r)
+            await hand_over(db, job.items, r, label=job.label, upgrade=upgrade)
         except engine.EngineDown:
             raise  # not the release's fault; caller puts the items back
         except Exception as e:
@@ -103,17 +103,6 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
             for it in job.items:
                 db.record_release(it.id, r.key, r.title, r.score, "failed")
             continue
-        now = time.time()
-        for it in job.items:
-            db.record_release(it.id, r.key, r.title, r.score, "picked")
-            fields = dict(engine_id=engine_id, release_name=r.title, downloading_since=now)
-            if it.state is State.DONE or it.mode:
-                fields["prev_engine_id"] = it.engine_id if it.engine_id != engine_id else None
-                fields["mode"] = it.mode or ("upgrade" if upgrade else "replace")
-            db.set_state(it.id, State.DOWNLOADING, **fields)
-        db.log_event(f"{'Upgrading' if upgrade else 'Grabbed'} {job.label}: {r.title}",
-                     job.items[0].id if len(job.items) == 1 else None)
-        log.info("%s   accepted by engine as %s%s", tag, engine_id, " (upgrade)" if upgrade else "")
         return True
     if results:
         log.info("%s none of the top %d candidates were accepted", tag, min(len(results), CANDIDATES))
@@ -121,6 +110,30 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
         for it in job.items:
             _nothing_found(db, it)
     return False
+
+
+async def hand_over(db: DB, items: list[Item], r: Release, label: str = "",
+                    upgrade: bool = False) -> str:
+    """Give one release to the engine for these items. Raises if it's refused.
+
+    Items already in the library keep their current file until the new one is
+    ready (mode 'replace', or 'upgrade' for the upgrade sweep).
+    """
+    engine_id = await _submit(r)
+    now = time.time()
+    for it in items:
+        db.record_release(it.id, r.key, r.title, r.score, "picked")
+        fields = dict(engine_id=engine_id, release_name=r.title, downloading_since=now)
+        if it.state is State.DONE or it.mode:
+            fields["prev_engine_id"] = it.engine_id if it.engine_id != engine_id else None
+            fields["mode"] = it.mode or ("upgrade" if upgrade else "replace")
+        db.set_state(it.id, State.DOWNLOADING, **fields)
+    label = label or (items[0].label if len(items) == 1 else f"{len(items)} items")
+    db.log_event(f"{'Upgrading' if upgrade else 'Grabbed'} {label}: {r.title}",
+                 items[0].id if len(items) == 1 else None)
+    tag = items[0].tag if len(items) == 1 else f"[items {','.join(str(i.id) for i in items)}]"
+    log.info("%s   accepted by engine as %s%s", tag, engine_id, " (upgrade)" if upgrade else "")
+    return engine_id
 
 
 def _nothing_found(db: DB, it: Item) -> None:

@@ -1,63 +1,84 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="head"><h1>Library</h1></div>
+<div class="page-head">
+  <div><h1>Media Library</h1><p class="sub">Browse and manage your media collection</p></div>
+  <div class="actions">
+    <button type="button" class="btn" id="selectBtn">Select</button>
+    <div class="join">
+      <button type="button" class="btn" data-view="grid">Grid</button>
+      <button type="button" class="btn" data-view="list">List</button>
+    </div>
+  </div>
+</div>
+{% if msg %}<div class="notice ok">{{ msg }}</div>{% endif %}
 <form class="filters" method="get">
-  <input name="q" value="{{ q }}" placeholder="Search your library">
-  <select name="state" onchange="this.form.submit()">
-    <option value="">All states</option>
-    {% for s in states %}<option {{ 'selected' if s == state }}>{{ s }}</option>{% endfor %}
+  <input name="q" value="{{ q }}" placeholder="Search media…">
+  <select name="status" onchange="this.form.submit()">
+    {% for k, v in [('all', 'All status'), ('collected', 'Collected'), ('missing', 'Missing'), ('upcoming', 'Upcoming'), ('failed', 'Failed')] %}
+    <option value="{{ k }}" {{ 'selected' if status == k }}>{{ v }}</option>{% endfor %}
   </select>
-  <button class="btn">Filter</button>
+  <select name="type" onchange="this.form.submit()">
+    {% for k, v in [('all', 'All media'), ('movie', 'Movies'), ('show', 'TV shows')] %}
+    <option value="{{ k }}" {{ 'selected' if type == k }}>{{ v }}</option>{% endfor %}
+  </select>
+  <select name="sort" onchange="this.form.submit()">
+    {% for k, v in [('title_asc', 'Title (A-Z)'), ('title_desc', 'Title (Z-A)'), ('added_desc', 'Recently added'), ('updated_desc', 'Recently updated'), ('year_desc', 'Year')] %}
+    <option value="{{ k }}" {{ 'selected' if sort == k }}>{{ v }}</option>{% endfor %}
+  </select>
+  <button class="btn">Search</button>
 </form>
 
-<div class="box">
-  <h3>Shows <span class="count">{{ shows | length }}</span></h3>
-  {% if shows %}
-  <table class="list">
-    <tr><th></th><th>Title</th><th>Episodes</th><th class="hide-sm">Status</th><th></th></tr>
-    {% for s in shows %}
-    <tr>
-      <td style="width:50px">{% if s.poster %}<img class="thumb" src="{{ s.poster }}" alt="" loading="lazy">{% else %}<div class="thumb"></div>{% endif %}</td>
-      <td><a href="/show/{{ s.tmdb_id }}">{{ s.title }}</a> <span class="muted">{{ s.year or '' }}</span></td>
-      <td class="mono">{{ s.done or 0 }} / {{ s.total or 0 }}</td>
-      <td class="hide-sm">
-        {% if s.active %}<span class="tag Downloading">{{ s.active }} in progress</span>{% endif %}
-        {% if s.failed %}<span class="tag Failed">{{ s.failed }} failed</span>{% endif %}
-        {% if not s.active and not s.failed and s.done == s.total and s.total %}<span class="tag Done">complete</span>{% endif %}
-      </td>
-      <td style="text-align:right;white-space:nowrap">
-        <form method="post" action="/show/{{ s.tmdb_id }}/delete" class="inline" data-confirm="Delete {{ s.title }} and all its episodes?">
-          <button class="iconbtn" title="Delete">Delete</button></form>
-        <form method="post" action="/show/{{ s.tmdb_id }}/delete" class="inline" data-confirm="Delete {{ s.title }} and blacklist it so it is never added again?">
-          <input type="hidden" name="block" value="1"><button class="iconbtn" title="Delete + blacklist">+ Blacklist</button></form>
-      </td>
-    </tr>
+<form method="post" action="/library/bulk" id="libForm">
+  <div class="selbar" id="selBar">
+    <span class="sel" id="selCount">0 selected</span>
+    <button class="btn small danger" name="action" value="delete" data-confirm="Delete the selected titles?">Delete</button>
+    <button class="btn small danger" name="action" value="delete_block" data-confirm="Delete and blacklist the selected titles?">Delete + blacklist</button>
+    <button class="btn small" type="button" id="selAllBtn">Select all</button>
+  </div>
+  <div class="muted small" style="margin:0 0 8px">{{ entries | length }} titles</div>
+  {% if entries %}
+  <div class="libgrid" id="lib">
+    {% for e in entries %}
+    <div class="libitem">
+      <label class="pick"><input type="checkbox" name="ids" value="{{ e.key }}"></label>
+      <a class="pcard" href="{{ e.href }}">
+        {% if e.poster %}<img src="{{ e.poster }}" alt="" loading="lazy">{% else %}<div class="noimg">{{ e.title }}</div>{% endif %}
+        <span class="corner tag {{ e.state }}">{{ e.badge }}</span>
+      </a>
+      <a class="libmeta" href="{{ e.href }}">
+        <span class="t">{{ e.title }}</span>
+        <span class="muted small">{{ e.year or '' }} · {{ 'Movie' if e.kind == 'movie' else 'TV' }}</span>
+        <span class="tag {{ e.state }} listonly">{{ e.badge }}</span>
+        <span class="mono small muted listonly">{{ e.sub }}</span>
+      </a>
+    </div>
     {% endfor %}
-  </table>
-  {% else %}<div class="empty">None.</div>{% endif %}
-</div>
-
-<div class="box">
-  <h3>Movies <span class="count">{{ movies | length }}</span></h3>
-  {% if movies %}
-  <table class="list">
-    <tr><th></th><th>Title</th><th>State</th><th class="hide-sm">Release</th><th></th></tr>
-    {% for m in movies %}
-    <tr>
-      <td style="width:50px">{% if m.poster %}<img class="thumb" src="{{ m.poster }}" alt="" loading="lazy">{% else %}<div class="thumb"></div>{% endif %}</td>
-      <td><a href="/item/{{ m.id }}">{{ m.title }}</a> <span class="muted">{{ m.year or '' }}</span></td>
-      <td><span class="tag {{ m.state }}">{{ m.state }}</span>
-        {% if m.state == 'Waiting' and m.next_attempt_at %}<span class="muted small">{{ m.next_attempt_at | ago }}</span>{% endif %}</td>
-      <td class="hide-sm mono">{{ m.release_name or '' }}</td>
-      <td style="text-align:right;white-space:nowrap">
-        <form method="post" action="/item/{{ m.id }}/delete" class="inline" data-confirm="Delete {{ m.title }}?">
-          <button class="iconbtn" title="Delete">Delete</button></form>
-        <form method="post" action="/item/{{ m.id }}/delete_block" class="inline" data-confirm="Delete {{ m.title }} and blacklist it?">
-          <button class="iconbtn" title="Delete + blacklist">+ Blacklist</button></form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}<div class="empty">None.</div>{% endif %}
-</div>
+  </div>
+  {% else %}<div class="box"><div class="empty">Nothing here. <a href="/discover">Discover something</a>.</div></div>{% endif %}
+</form>
+<script>
+(() => {
+  const lib = document.getElementById('lib'), form = document.getElementById('libForm');
+  const setView = (v) => { if (lib) lib.classList.toggle('list', v === 'list');
+    document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+    try { localStorage.setItem('libView', v); } catch (e) {} };
+  let v = 'grid'; try { v = localStorage.getItem('libView') || 'grid'; } catch (e) {}
+  setView(v);
+  document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  const count = () => document.getElementById('selCount').textContent =
+    form.querySelectorAll('input[name=ids]:checked').length + ' selected';
+  document.getElementById('selectBtn').addEventListener('click', (e) => {
+    const on = form.classList.toggle('selecting'); e.target.textContent = on ? 'Cancel' : 'Select';
+    if (!on) form.querySelectorAll('input[name=ids]').forEach(c => c.checked = false); count();
+  });
+  document.getElementById('selAllBtn').addEventListener('click', () => { form.querySelectorAll('input[name=ids]').forEach(c => c.checked = true); count(); });
+  form.addEventListener('change', count);
+  // In select mode, clicking a card toggles it instead of opening it.
+  form.addEventListener('click', (e) => {
+    if (!form.classList.contains('selecting')) return;
+    const item = e.target.closest('.libitem'); if (!item || e.target.matches('input')) return;
+    e.preventDefault(); const c = item.querySelector('input'); c.checked = !c.checked; count();
+  });
+})();
+</script>
 {% endblock %}

@@ -117,7 +117,7 @@ async def block_release(db: DB, item_id: int, release_key: str) -> bool:
     return True
 
 
-BULK_ACTIONS = ("delete", "delete_block", "retry", "replace", "wanted")
+BULK_ACTIONS = ("delete", "delete_block", "retry", "replace", "wanted", "rescrape")
 
 
 async def bulk(db: DB, action: str, item_ids: list[int]) -> int:
@@ -131,6 +131,14 @@ async def bulk(db: DB, action: str, item_ids: list[int]) -> int:
             n += retry(db, i)
         elif action == "replace":
             n += replace(db, i)
+        elif action == "rescrape":
+            # v1's "rescrape": find something else. Done items keep playing meanwhile.
+            it = db.get_item(i)
+            if it and it.state is State.DONE:
+                n += replace(db, i)
+            elif it and it.state is not State.DOWNLOADING:
+                db.set_state(i, State.WANTED, attempts=0, next_attempt_at=None)
+                n += 1
         elif action == "wanted":
             it = db.get_item(i)
             if it and it.state in (State.WAITING, State.FAILED, State.WANTED):

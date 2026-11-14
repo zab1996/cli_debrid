@@ -6,6 +6,7 @@
     <div class="head">
       <h1>{{ show.title }} <span class="muted">{{ show.year or '' }}</span></h1>
       <div class="actions">
+        <a class="btn" href="/discover/show/{{ show.tmdb_id }}">Details &amp; more seasons</a>
         <form method="post" action="/show/{{ show.tmdb_id }}/retry"><button class="btn">Retry failed</button></form>
         <form method="post" action="/show/{{ show.tmdb_id }}/delete" data-confirm="Delete {{ show.title }} and all its episodes from the library?">
           <button class="btn danger">Delete show</button></form>
@@ -24,6 +25,7 @@
           <button class="btn small danger">Delete season</button></form>
         <form method="post" action="/show/{{ show.tmdb_id }}/season/{{ season }}/delete" class="inline" data-confirm="Delete season {{ season }} and blacklist it?">
           <input type="hidden" name="block" value="1"><button class="btn small danger">Delete + blacklist season</button></form>
+        {% if packs_ok %}<a class="btn small" href="/releases?kind=season&tmdb_id={{ show.tmdb_id }}&season={{ season }}&back_to=/show/{{ show.tmdb_id }}">Find season pack</a>{% endif %}
       </div>
       <table class="list">
         {% for e in eps %}
@@ -32,7 +34,9 @@
           <td style="width:130px"><span class="tag {{ e.state }}">{{ e.state }}</span></td>
           <td class="mono hide-sm">{{ e.release_name or '' }}</td>
           <td class="mono" style="width:110px">{% if e.state == 'Waiting' and e.next_attempt_at %}{{ e.next_attempt_at | ago }}{% else %}{{ e.release_date or '' }}{% endif %}</td>
-          <td style="width:70px;text-align:right"><form method="post" action="/item/{{ e.id }}/delete" class="inline" data-confirm="Delete this episode?">
+          <td style="width:170px;text-align:right;white-space:nowrap">
+            <a class="iconbtn" href="/releases?kind=episode&tmdb_id={{ show.tmdb_id }}&season={{ season }}&episode={{ e.episode }}&back_to=/show/{{ show.tmdb_id }}">Releases</a>
+            <form method="post" action="/item/{{ e.id }}/delete" class="inline" data-confirm="Delete this episode?">
             <button class="iconbtn" title="Delete">Delete</button></form></td>
         </tr>
         {% endfor %}

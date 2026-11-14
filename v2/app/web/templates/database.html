@@ -1,7 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="head"><h1>Database</h1><span class="muted small">{{ total }} items</span></div>
+<div class="page-head">
+  <div><h1>Database</h1><p class="sub">{{ total }} items · every movie and episode, raw</p></div>
+  <div class="actions">
+    <button type="button" class="btn" id="colsBtn">Columns</button>
+  </div>
+</div>
 {% if msg %}<div class="notice ok">{{ msg | capitalize }}</div>{% endif %}
+
+<div class="box colpicker" id="colPicker" hidden>
+  <h3>Columns to display <button type="button" class="btn small" id="colsReset">Reset</button></h3>
+  <div class="colgrid">
+    {% for key, label in columns %}<label class="check"><input type="checkbox" value="{{ key }}"> {{ label }}</label>{% endfor %}
+  </div>
+</div>
+
 <form class="filters" method="get">
   <input name="q" value="{{ args.q }}" placeholder="Title, release name, IMDb or TMDB id">
   <select name="kind">
@@ -20,6 +33,9 @@
   <select name="sort">
     {% for s in sorts %}<option value="{{ s }}" {{ 'selected' if s == args.sort }}>Sort: {{ s }}</option>{% endfor %}
   </select>
+  <select name="per">
+    {% for n in page_sizes %}<option value="{{ n }}" {{ 'selected' if n == args.per }}>{{ n }} / page</option>{% endfor %}
+  </select>
   <button class="btn">Apply</button>
 </form>
 
@@ -27,33 +43,43 @@
   <input type="hidden" name="back" value="/database?{{ qs }}{{ '&' if qs }}page={{ page }}">
   <div class="bulkbar">
     <span class="sel" id="selCount">0 selected</span>
-    <select name="action" required>
+    <select name="action" id="bulkAction">
       <option value="">Action…</option>
+      <option value="rescrape">Rescrape (find a different release)</option>
       <option value="retry">Search now (Failed / Waiting)</option>
       <option value="wanted">Move to Wanted</option>
       <option value="replace">Replace file (Done)</option>
       <option value="delete">Delete</option>
       <option value="delete_block">Delete + blacklist</option>
     </select>
-    <button class="btn" onclick="return confirmBulk()">Apply to selected</button>
+    <button class="btn" type="submit" id="bulkGo">Apply to selected</button>
   </div>
   {% if rows %}
-  <table class="list">
-    <tr><th class="cb"><input type="checkbox" id="selAll" aria-label="Select all"></th>
-      <th>Title</th><th>State</th><th class="hide-sm">Release date</th><th class="hide-sm">Release</th>
-      <th class="hide-sm">Source</th><th class="hide-sm">Added</th></tr>
+  <div class="tablewrap">
+  <table class="list dbtable" id="dbTable">
+    <tr><th class="cb"><input type="checkbox" id="selAll" aria-label="Select all"></th><th class="cb"></th>
+      {% for key, label in columns %}<th data-col="{{ key }}">{{ label }}</th>{% endfor %}</tr>
     {% for r in rows %}
     <tr>
       <td class="cb"><input type="checkbox" name="ids" value="{{ r.id }}"></td>
-      <td><a href="/item/{{ r.id }}">{{ r.title }}{% if r.kind == 'episode' %} S{{ '%02d' % r.season }}E{{ '%02d' % r.episode }}{% elif r.year %} ({{ r.year }}){% endif %}</a></td>
-      <td><span class="tag {{ r.state }}">{{ r.state }}</span>{% if r.mode %} <span class="muted small">{{ r.mode }}</span>{% endif %}</td>
-      <td class="mono hide-sm">{{ r.release_date or '' }}</td>
-      <td class="mono hide-sm">{{ r.release_name or '' }}</td>
-      <td class="small muted hide-sm">{{ r.source or 'manual' }}</td>
-      <td class="mono hide-sm">{{ r.added_at | ymd }}</td>
+      <td class="cb rowacts">
+        <button class="iconbtn" formaction="/database/row/{{ r.id }}/rescrape" title="Rescrape">↻</button>
+        <button class="iconbtn" formaction="/database/row/{{ r.id }}/delete" title="Delete" data-row-delete>✕</button>
+        <a class="iconbtn" href="/releases?{{ 'kind=movie&tmdb_id=' ~ r.tmdb_id if r.kind == 'movie' else 'kind=episode&tmdb_id=' ~ r.tmdb_id ~ '&season=' ~ r.season ~ '&episode=' ~ r.episode }}&back_to=%2Fdatabase" title="Pick a release">⋯</a>
+      </td>
+      {% for key, label in columns %}
+      <td data-col="{{ key }}" class="{{ 'mono' if key in ('release_name', 'file_path', 'engine_id', 'imdb_id', 'release_date', 'added_at', 'updated_at', 'done_at') }}">
+        {%- if key == 'title' -%}<a href="/item/{{ r.id }}">{{ r.title }}{% if r.kind == 'episode' %} S{{ '%02d' % r.season }}E{{ '%02d' % r.episode }}{% elif r.year %} ({{ r.year }}){% endif %}</a>
+        {%- elif key == 'state' -%}<span class="tag {{ r.state }}">{{ r.state }}</span>{% if r.mode %} <span class="muted small">{{ r.mode }}</span>{% endif %}
+        {%- elif key in ('added_at', 'updated_at', 'done_at') -%}{{ r[key] | ymd }}
+        {%- elif key == 'source' -%}{{ r.source or 'manual' }}
+        {%- else -%}{{ '' if r[key] is none else r[key] }}{%- endif -%}
+      </td>
+      {% endfor %}
     </tr>
     {% endfor %}
   </table>
+  </div>
   <div class="pager">
     {% if page > 1 %}<a class="btn small" href="/database?{{ qs }}{{ '&' if qs }}page={{ page - 1 }}">← Prev</a>{% endif %}
     <span class="muted">Page {{ page }} / {{ pages }}</span>
@@ -62,16 +88,38 @@
   {% else %}<div class="empty">No items match.</div>{% endif %}
 </form>
 <script>
+(() => {
+  const DEFAULT = {{ default_columns | tojson }};
+  let cols = DEFAULT;
+  try { cols = JSON.parse(localStorage.getItem('dbCols')) || DEFAULT; } catch (e) {}
+  const apply = () => {
+    document.querySelectorAll('[data-col]').forEach(el => el.style.display = cols.includes(el.dataset.col) ? '' : 'none');
+    document.querySelectorAll('#colPicker input').forEach(c => c.checked = cols.includes(c.value));
+  };
+  apply();
+  document.getElementById('colsBtn').addEventListener('click', () => { const p = document.getElementById('colPicker'); p.hidden = !p.hidden; });
+  document.getElementById('colPicker').addEventListener('change', () => {
+    cols = [...document.querySelectorAll('#colPicker input:checked')].map(c => c.value);
+    try { localStorage.setItem('dbCols', JSON.stringify(cols)); } catch (e) {} apply();
+  });
+  document.getElementById('colsReset').addEventListener('click', () => { cols = DEFAULT;
+    try { localStorage.removeItem('dbCols'); } catch (e) {} apply(); });
+
   const boxes = () => [...document.querySelectorAll('input[name=ids]')];
-  const count = () => { document.getElementById('selCount').textContent = boxes().filter(b => b.checked).length + ' selected'; };
+  const count = () => { const el = document.getElementById('selCount'); if (el) el.textContent = boxes().filter(b => b.checked).length + ' selected'; };
   document.getElementById('selAll')?.addEventListener('change', (e) => { boxes().forEach(b => b.checked = e.target.checked); count(); });
   document.addEventListener('change', (e) => { if (e.target.name === 'ids') count(); });
-  function confirmBulk() {
-    const n = boxes().filter(b => b.checked).length;
-    const a = document.querySelector('select[name=action]').value;
-    if (!n) { alert('Select some items first'); return false; }
-    if (a.startsWith('delete')) return confirm(`${a === 'delete' ? 'Delete' : 'Delete and blacklist'} ${n} item(s)?`);
-    return true;
-  }
+  document.getElementById('bulkForm')?.addEventListener('submit', (e) => {
+    const btn = e.submitter;
+    if (btn && btn.formAction && btn.formAction.includes('/database/row/')) {
+      if (btn.hasAttribute('data-row-delete') && !confirm('Delete this item?')) e.preventDefault();
+      return;
+    }
+    const n = boxes().filter(b => b.checked).length, a = document.getElementById('bulkAction').value;
+    if (!a) { alert('Choose an action'); e.preventDefault(); return; }
+    if (!n) { alert('Select some items first'); e.preventDefault(); return; }
+    if (a.startsWith('delete') && !confirm(`${a === 'delete' ? 'Delete' : 'Delete and blacklist'} ${n} item(s)?`)) e.preventDefault();
+  });
+})();
 </script>
 {% endblock %}

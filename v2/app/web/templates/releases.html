@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1 id="relTitle">Searching…</h1><p class="sub" id="relSub">Asking every indexer; this usually takes a few seconds.</p></div>
+  <div class="actions">{% if back_to %}<a class="btn" href="{{ back_to }}">← Back</a>{% endif %}
+    <button class="btn" id="relAgain" type="button">Search again</button></div>
+</div>
+<div id="relMsg"></div>
+<div class="box">
+  <div class="bulkbar rel-filters">
+    <input id="fText" placeholder="Filter (e.g. 2160p, REMUX, group…)" style="flex:1;min-width:180px">
+    <select id="fProto"><option value="">Torrent + usenet</option><option value="torrent">Torrent</option><option value="nzb">Usenet</option></select>
+    <select id="fRes"><option value="">Any resolution</option><option>2160p</option><option>1080p</option><option>720p</option></select>
+    <select id="fSort"><option value="score">Sort: best first</option><option value="size">Sort: size</option><option value="seeders">Sort: seeders</option><option value="title">Sort: name</option></select>
+    <label class="check" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="fRej"> Show rejected</label>
+    <span class="sel" id="relCount"></span>
+  </div>
+  <div id="relBody"><div class="empty"><span class="spinner"></span> Searching…</div></div>
+</div>
+<script>
+(() => {
+  const params = {{ qs | tojson }};
+  let data = null;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const tag = (t, cls='') => t ? `<span class="rtag ${cls}">${esc(t)}</span>` : '';
+
+  async function load() {
+    $('relTitle').textContent = 'Searching…';
+    $('relSub').textContent = 'Asking every indexer; this usually takes a few seconds.';
+    $('relBody').innerHTML = '<div class="empty"><span class="spinner"></span> Searching…</div>';
+    try {
+      const r = await fetch('/api/releases?' + params);
+      data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      $('relTitle').textContent = data.label;
+      $('relSub').textContent = `${data.results.length} releases · ${data.accepted} acceptable · ${data.took}s`;
+      render();
+    } catch (e) {
+      $('relTitle').textContent = 'Search failed';
+      $('relBody').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
+  }
+
+  function render() {
+    if (!data) return;
+    const text = $('fText').value.toLowerCase(), proto = $('fProto').value, res = $('fRes').value;
+    const rej = $('fRej').checked, sort = $('fSort').value;
+    let rows = data.results.filter(r => (rej || !r.reject) && (!proto || r.protocol === proto)
+      && (!res || r.resolution === res) && (!text || r.title.toLowerCase().includes(text) || r.indexer.toLowerCase().includes(text)));
+    const by = { size: (a, b) => b.size_gb - a.size_gb, seeders: (a, b) => b.seeders - a.seeders,
+                 title: (a, b) => a.title.localeCompare(b.title),
+                 score: (a, b) => (!!a.reject - !!b.reject) || ((b.score ?? -1e9) - (a.score ?? -1e9)) };
+    rows.sort(by[sort]);
+    $('relCount').textContent = `${rows.length} shown`;
+    if (!rows.length) { $('relBody').innerHTML = `<div class="empty">${data.results.length ? 'Nothing matches the filters' + (rej ? '' : ' (try "Show rejected")') : 'No releases found on any indexer.'}</div>`; return; }
+    $('relBody').innerHTML = `<table class="list rel"><tr><th>Release</th><th class="hide-sm">Size</th><th class="hide-sm">Source</th><th>Score</th><th></th></tr>` +
+      rows.map(r => `<tr class="${r.reject ? 'rejected' : ''}">
+        <td><div class="rname">${esc(r.title)}</div>
+          <div class="rtags">${tag(r.resolution, 'res')}${tag(r.source)}${tag(r.codec)}${tag(r.hdr, 'hdr')}${tag(r.audio)}${tag(r.languages)}
+            ${r.cached ? tag('cached', 'ok') : ''}${r.current ? tag('in use', 'ok') : ''}${r.before && !r.current ? tag('tried: ' + r.before, 'warn') : ''}
+            ${r.reject ? tag(r.reject, 'bad') : ''}</div></td>
+        <td class="mono hide-sm">${r.size_gb ? r.size_gb.toFixed(1) + ' GB' : '?'}</td>
+        <td class="small hide-sm"><span class="proto ${r.protocol}">${r.protocol === 'nzb' ? 'usenet' : 'torrent'}</span><br><span class="muted">${esc(r.indexer)}${r.protocol === 'torrent' && r.seeders ? ' · ' + r.seeders + ' seeds' : ''}</span></td>
+        <td class="mono">${r.score === null ? '–' : r.score.toFixed(1)}</td>
+        <td style="text-align:right">${r.grabbable ? `<button class="btn small ${r.reject ? '' : 'primary'}" data-grab="${r.i}">Grab</button>` : ''}</td></tr>`).join('') + '</table>';
+  }
+
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-grab]');
+    if (!b) return;
+    const r = data.results[+b.dataset.grab];
+    if (r.reject && !confirm(`This release was rejected (${r.reject}). Grab it anyway?`)) return;
+    b.disabled = true; b.textContent = 'Grabbing…';
+    try {
+      const resp = await (await fetch('/api/releases/grab', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id: data.id, i: r.i }) })).json();
+      $('relMsg').innerHTML = `<div class="notice ${resp.ok ? 'ok' : 'bad'}">${esc(resp.message)}${resp.item ? ` · <a href="/item/${resp.item}">open</a>` : ''}</div>`;
+      b.textContent = resp.ok ? 'Grabbed' : 'Grab';
+      b.disabled = resp.ok;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) { b.disabled = false; b.textContent = 'Grab'; }
+  });
+  ['fText', 'fProto', 'fRes', 'fSort', 'fRej'].forEach(id => $(id).addEventListener('input', render));
+  $('relAgain').addEventListener('click', load);
+  load();
+})();
+</script>
+{% endblock %}

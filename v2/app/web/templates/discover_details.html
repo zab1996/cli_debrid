@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+{% set here = '/discover/' ~ kind ~ '/' ~ d.tmdb_id %}
+<div class="hero" {% if d.backdrop %}style="background-image: linear-gradient(90deg, rgba(10,10,10,.97) 25%, rgba(10,10,10,.75) 60%, rgba(10,10,10,.55)), url('{{ d.backdrop }}')"{% endif %}>
+  <div class="hero-poster">{% if d.poster %}<img src="{{ d.poster }}" alt="">{% endif %}</div>
+  <div class="hero-body">
+    <h1>{{ d.title }} <span class="muted">{{ d.year or '' }}</span></h1>
+    {% if d.tagline %}<p class="tagline">{{ d.tagline }}</p>{% endif %}
+    <div class="chips">
+      <span class="chip">{{ 'Movie' if kind == 'movie' else 'TV show' }}</span>
+      {% if d.rating %}<span class="chip">★ {{ d.rating }}</span>{% endif %}
+      {% if d.runtime %}<span class="chip">{{ d.runtime }} min</span>{% endif %}
+      {% if d.status %}<span class="chip">{{ d.status }}</span>{% endif %}
+      {% for g in d.genres %}<span class="chip">{{ g }}</span>{% endfor %}
+      {% if d.state %}<span class="tag Done">{{ 'In library' if d.state in ('Done', 'In library') else d.state }}</span>{% endif %}
+      {% if d.blocked %}<span class="tag Failed">Blacklisted</span>{% endif %}
+    </div>
+    <p class="overview">{{ d.overview }}</p>
+    {% if d.cast %}<p class="muted small">With {{ d.cast | join(', ') }}</p>{% endif %}
+    {% if msg %}<div class="notice ok">{{ msg }}</div>{% endif %}
+    {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+    <div class="actions" style="margin-top:14px">
+      {% if kind == 'movie' %}
+        {% if not d.blocked %}
+          {% if not item %}
+          <form method="post" action="/add"><input type="hidden" name="kind" value="movie"><input type="hidden" name="tmdb_id" value="{{ d.tmdb_id }}">
+            <input type="hidden" name="back_to" value="{{ here }}"><button class="btn primary">Add (automatic)</button></form>
+          {% endif %}
+          <a class="btn" href="/releases?kind=movie&tmdb_id={{ d.tmdb_id }}&back_to={{ here | urlencode }}">{{ 'Find releases / replace' if item else 'Find releases' }}</a>
+          {% if item %}<a class="btn" href="/item/{{ item }}">Open in library</a>{% endif %}
+        {% endif %}
+      {% else %}
+        {% if not d.blocked %}
+          <form method="post" action="/add"><input type="hidden" name="kind" value="show"><input type="hidden" name="tmdb_id" value="{{ d.tmdb_id }}">
+            <input type="hidden" name="back_to" value="{{ here }}"><button class="btn primary">{{ 'Add all seasons' if not d.state else 'Add any missing seasons' }}</button></form>
+          {% if d.state %}<a class="btn" href="/show/{{ d.tmdb_id }}">Open in library</a>{% endif %}
+        {% endif %}
+      {% endif %}
+      {% if not d.blocked and not d.state %}
+      <form method="post" action="/add/block" data-confirm="Never add {{ d.title }}?"><input type="hidden" name="kind" value="{{ kind }}">
+        <input type="hidden" name="tmdb_id" value="{{ d.tmdb_id }}"><input type="hidden" name="title" value="{{ d.title }}">
+        <input type="hidden" name="back_to" value="{{ here }}"><button class="btn danger">Block</button></form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if kind == 'show' %}
+<h2>Seasons</h2>
+{% for s in d.seasons %}
+{% set eps = episodes.get(s.number, []) %}
+<details class="queue" {{ 'open' if loop.last }}>
+  <summary>
+    <span>{{ s.name or ('Season ' ~ s.number) }} <span class="muted small">{{ s.episodes }} episodes{% if s.air_date %} · {{ s.air_date[:4] }}{% endif %}</span></span>
+    <span class="qcount">{{ season_done.get(s.number, 0) }}/{{ eps | length or s.episodes }}</span>
+  </summary>
+  <div class="bulkbar">
+    {% if s.number in blocked_seasons or -1 in blocked_seasons %}
+      <span class="tag Failed">Season blacklisted</span>
+    {% else %}
+    <form method="post" action="/add" class="inline"><input type="hidden" name="kind" value="show"><input type="hidden" name="tmdb_id" value="{{ d.tmdb_id }}">
+      <input type="hidden" name="seasons" value="{{ s.number }}"><input type="hidden" name="back_to" value="{{ here }}">
+      <button class="btn small">Add season {{ s.number }}</button></form>
+    {% if packs_ok %}<a class="btn small" href="/releases?kind=season&tmdb_id={{ d.tmdb_id }}&season={{ s.number }}&back_to={{ here | urlencode }}">Find season pack</a>{% endif %}
+    {% endif %}
+  </div>
+  <table class="list">
+    {% for e in eps %}
+    {% set st = states.get((s.number, e.episode)) %}
+    <tr>
+      <td style="width:60px" class="mono">E{{ '%02d' % e.episode }}</td>
+      <td>{{ e.title }}</td>
+      <td class="mono hide-sm" style="width:110px">{{ e.air_date or '' }}</td>
+      <td style="width:120px">{% if st %}<a href="/item/{{ st[0] }}"><span class="tag {{ st[1] }}">{{ st[1] }}</span></a>{% elif e.air_date and e.air_date > today %}<span class="muted small">upcoming</span>{% endif %}</td>
+      <td style="width:90px;text-align:right">{% if not (s.number in blocked_seasons or -1 in blocked_seasons) %}<a class="btn small" href="/releases?kind=episode&tmdb_id={{ d.tmdb_id }}&season={{ s.number }}&episode={{ e.episode }}&back_to={{ here | urlencode }}">Releases</a>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td class="empty">No episode list yet.</td></tr>
+    {% endfor %}
+  </table>
+</details>
+{% endfor %}
+{% endif %}
+{% endblock %}

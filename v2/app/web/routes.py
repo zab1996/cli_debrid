@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from .. import __version__, blacklist, catalog, checks, config, manage
+from .. import __version__, blacklist, catalog, checks, config, interactive, manage
 from ..config import Config
 from ..downloads import engine
 from ..metadata import tmdb
@@ -167,33 +167,76 @@ def queues(request: Request):
 # ------------------------------------------------------------------ library
 
 
+LIB_SORTS = {"title_asc": ("title", False), "title_desc": ("title", True),
+             "added_desc": ("added", True), "year_desc": ("year", True), "updated_desc": ("updated", True)}
+
+
 @router.get("/library", response_class=HTMLResponse)
-def library(request: Request, state: str = "", q: str = ""):
+def library(request: Request, q: str = "", status: str = "all", type: str = "all",
+            sort: str = "title_asc", state: str = "", msg: str = ""):
     db = request.app.state.db
-    where, params = ["kind='movie'"], []
-    if state:
-        where.append("state=?")
-        params.append(state)
+    today = time.strftime("%Y-%m-%d")
+    if state:  # old links (/library?state=X)
+        status = {"Done": "collected", "Failed": "failed", "Waiting": "upcoming"}.get(state, "missing")
+    entries = []
+    if type in ("all", "movie"):
+        for m in db.query("SELECT id, tmdb_id, title, year, poster, state, release_date, release_name,"
+                          " added_at, updated_at FROM items WHERE kind='movie'"):
+            st = m["state"]
+            entries.append({
+                "key": f"m:{m['id']}", "kind": "movie", "href": f"/item/{m['id']}", "title": m["title"],
+                "year": m["year"], "poster": m["poster"], "state": st, "badge": st,
+                "collected": st == "Done", "missing": st != "Done", "failed": st == "Failed",
+                "upcoming": st == "Waiting" and (m["release_date"] or "") > today,
+                "added": m["added_at"], "updated": m["updated_at"], "sub": m["release_name"] or "",
+            })
+    if type in ("all", "show"):
+        for sh in db.query(
+                "SELECT s.tmdb_id, s.title, s.year, s.poster, s.added_at, COUNT(i.id) total,"
+                " SUM(i.state='Done') done, SUM(i.state='Failed') failed,"
+                " SUM(i.state IN ('Wanted','Searching','Downloading')) active,"
+                " SUM(i.release_date > ?) future, MAX(i.updated_at) updated"
+                " FROM shows s LEFT JOIN items i ON i.kind='episode' AND i.tmdb_id=s.tmdb_id"
+                " GROUP BY s.tmdb_id", (today,)):
+            done, total = sh["done"] or 0, sh["total"] or 0
+            entries.append({
+                "key": f"s:{sh['tmdb_id']}", "kind": "show", "href": f"/show/{sh['tmdb_id']}",
+                "title": sh["title"], "year": sh["year"], "poster": sh["poster"],
+                "state": "Done" if total and done == total else ("Downloading" if sh["active"] else "Wanted"),
+                "badge": f"{done}/{total}", "collected": done > 0, "missing": done < total,
+                "failed": bool(sh["failed"]), "upcoming": bool(sh["future"]),
+                "added": sh["added_at"], "updated": sh["updated"] or sh["added_at"],
+                "sub": f"{sh['active'] or 0} in progress" if sh["active"] else "",
+            })
     if q:
-        where.append("title LIKE ?")
-        params.append(f"%{q}%")
-    movies = db.query(f"SELECT id, title, year, state, release_name, next_attempt_at, poster FROM items"
-                      f" WHERE {' AND '.join(where)} ORDER BY title LIMIT 500", tuple(params))
-    show_where, show_params = "", []
-    if q:
-        show_where, show_params = "WHERE s.title LIKE ?", [f"%{q}%"]
-    shows = db.query(
-        "SELECT s.tmdb_id, s.title, s.year, s.poster, COUNT(i.id) total,"
-        " SUM(i.state='Done') done, SUM(i.state IN ('Wanted','Searching','Downloading')) active,"
-        " SUM(i.state='Failed') failed FROM shows s LEFT JOIN items i"
-        " ON i.kind='episode' AND i.tmdb_id=s.tmdb_id " + show_where +
-        " GROUP BY s.tmdb_id ORDER BY s.title LIMIT 500", tuple(show_params))
-    if state:
-        shows = [s for s in shows if db.query(
-            "SELECT 1 FROM items WHERE kind='episode' AND tmdb_id=? AND state=? LIMIT 1",
-            (s["tmdb_id"], state))]
-    return render(request, "library.html", movies=movies, shows=shows, state=state, q=q,
-                  states=[s.value for s in State])
+        ql = q.lower()
+        entries = [e for e in entries if ql in (e["title"] or "").lower()]
+    if status != "all":
+        entries = [e for e in entries if e.get(status)]
+    field_, rev = LIB_SORTS.get(sort, LIB_SORTS["title_asc"])
+    entries.sort(key=lambda e: (e[field_] is None, e[field_] or 0) if field_ != "title"
+                 else (e["title"] or "").lower(), reverse=rev)
+    return render(request, "library.html", entries=entries, q=q, status=status, type=type,
+                  sort=sort, msg=msg)
+
+
+@router.post("/library/bulk")
+async def library_bulk(request: Request):
+    form = await request.form()
+    action = form.get("action", "delete")
+    db = request.app.state.db
+    n = 0
+    for key in form.getlist("ids"):
+        kind, _, ident = str(key).partition(":")
+        if not ident.isdigit():
+            continue
+        if kind == "m":
+            n += await (manage.delete_and_block(db, [int(ident)]) if action == "delete_block"
+                        else manage.delete_items(db, [int(ident)]))
+        elif kind == "s":
+            await manage.delete_show(db, int(ident), block=action == "delete_block")
+            n += 1
+    return back(f"/library?msg={quote(f'Deleted {n} title(s)')}")
 
 
 @router.get("/show/{tmdb_id}", response_class=HTMLResponse)
@@ -208,7 +251,9 @@ def show(request: Request, tmdb_id: int):
     seasons: dict[int, list] = {}
     for e in eps:
         seasons.setdefault(e["season"], []).append(e)
-    return render(request, "show.html", show=rows[0], seasons=seasons, nav="library")
+    cfg = config.get()
+    return render(request, "show.html", show=rows[0], seasons=seasons, nav="library",
+                  packs_ok=bool(cfg.debrid.provider and cfg.debrid.api_key))
 
 
 @router.get("/item/{item_id}", response_class=HTMLResponse)
@@ -227,7 +272,8 @@ def item(request: Request, item_id: int):
         rows = db.query("SELECT poster FROM shows WHERE tmdb_id=?", (it.tmdb_id,))
         poster = rows[0]["poster"] if rows else None
     return render(request, "item.html", it=it, tried=tried, events=events, poster=poster,
-                  blocked=blacklist.release_keys(db), nav="library")
+                  blocked=blacklist.release_keys(db), manual_qs=urlencode(interactive.params_for_item(it)),
+                  nav="library")
 
 
 @router.post("/item/{item_id}/{action}")
@@ -277,29 +323,120 @@ async def show_retry(request: Request, tmdb_id: int):
 # ------------------------------------------------------------------ add
 
 
-@router.get("/add", response_class=HTMLResponse)
-async def add_page(request: Request, q: str = "", error: str = ""):
-    results = []
-    if q:
-        try:
-            results = await tmdb.search(q)
-        except Exception as e:
-            error = str(e)
-    db = request.app.state.db
-    have_movies = {r["tmdb_id"] for r in db.query("SELECT tmdb_id FROM items WHERE kind='movie'")}
+@router.get("/add")
+def add_redirect(q: str = ""):
+    return back(f"/discover?q={quote(q)}" if q else "/discover")
+
+
+DISCOVER_ROWS = [("trending_movies", "Trending Movies"), ("trending_shows", "Trending Shows"),
+                 ("popular_movies", "Popular Movies"), ("popular_shows", "Popular Shows"),
+                 ("upcoming_movies", "Upcoming Movies"), ("on_the_air", "On The Air")]
+
+
+def _mark_library(db, cards: list[dict]) -> None:
+    have_movies = {r["tmdb_id"]: r["state"] for r in db.query("SELECT tmdb_id, state FROM items WHERE kind='movie'")}
     have_shows = {r["tmdb_id"] for r in db.query("SELECT tmdb_id FROM shows")}
-    blocked = {(r["kind"], r["tmdb_id"]) for r in db.query(
-        "SELECT kind, tmdb_id FROM blacklist WHERE season=-1")}
-    for r in results:
-        r["have"] = r["tmdb_id"] in (have_movies if r["kind"] == "movie" else have_shows)
-        r["blocked"] = (r["kind"], r["tmdb_id"]) in blocked
-    return render(request, "add.html", q=q, results=results, error=error)
+    blocked = {(r["kind"], r["tmdb_id"]) for r in db.query("SELECT kind, tmdb_id FROM blacklist WHERE season=-1")}
+    for c in cards:
+        if c["kind"] == "movie":
+            c["state"] = have_movies.get(c["tmdb_id"])
+        else:
+            c["state"] = "In library" if c["tmdb_id"] in have_shows else None
+        c["blocked"] = (c["kind"], c["tmdb_id"]) in blocked
+
+
+@router.get("/discover", response_class=HTMLResponse)
+async def discover(request: Request, q: str = "", tab: str = "", error: str = ""):
+    db = request.app.state.db
+    rows, results = [], []
+    try:
+        if q:
+            results = await tmdb.search(q)
+            _mark_library(db, results)
+        else:
+            wanted = [r for r in DISCOVER_ROWS if not tab or r[0] == tab]
+            got = await asyncio.gather(*(tmdb.browse(db, key) for key, _ in wanted), return_exceptions=True)
+            for (key, label), cards in zip(wanted, got):
+                if isinstance(cards, Exception):
+                    continue
+                _mark_library(db, cards)
+                rows.append({"key": key, "label": label, "cards": cards if tab else cards[:14]})
+    except Exception as e:
+        error = error or str(e)
+    return render(request, "discover.html", q=q, tab=tab, rows=rows, results=results, error=error,
+                  tabs=DISCOVER_ROWS, nav="discover")
+
+
+@router.get("/discover/{kind}/{tmdb_id}", response_class=HTMLResponse)
+async def discover_details(request: Request, kind: str, tmdb_id: int, msg: str = "", error: str = ""):
+    db = request.app.state.db
+    kind = "movie" if kind == "movie" else "show"
+    d = await tmdb.details(db, kind, tmdb_id)
+    _mark_library(db, [d])
+    episodes, states, item, season_done = {}, {}, None, {}
+    if kind == "show":
+        info = await tmdb.show(db, tmdb_id)
+        episodes = {int(k): v for k, v in (info.get("seasons") or {}).items()}
+        for r in db.query("SELECT id, season, episode, state FROM items WHERE kind='episode' AND tmdb_id=?", (tmdb_id,)):
+            states[(r["season"], r["episode"])] = (r["id"], r["state"])
+            if r["state"] == "Done":
+                season_done[r["season"]] = season_done.get(r["season"], 0) + 1
+    else:
+        rows = db.query("SELECT id FROM items WHERE kind='movie' AND tmdb_id=?", (tmdb_id,))
+        item = rows[0]["id"] if rows else None
+    blocked_seasons = {r["season"] for r in db.query(
+        "SELECT season FROM blacklist WHERE kind='show' AND tmdb_id=?", (tmdb_id,))}
+    cfg = config.get()
+    return render(request, "discover_details.html", d=d, kind=kind, episodes=episodes, states=states,
+                  item=item, msg=msg, error=error, blocked_seasons=blocked_seasons,
+                  season_done=season_done,
+                  packs_ok=bool(cfg.debrid.provider and cfg.debrid.api_key),
+                  today=time.strftime("%Y-%m-%d"), nav="discover")
+
+
+# ------------------------------------------------------------------ manual release picker
+
+
+@router.get("/releases", response_class=HTMLResponse)
+def releases_page(request: Request, kind: str, tmdb_id: int, season: int | None = None,
+                  episode: int | None = None, back_to: str = ""):
+    params = {"kind": kind, "tmdb_id": tmdb_id}
+    if season is not None:
+        params["season"] = season
+    if episode is not None:
+        params["episode"] = episode
+    return render(request, "releases.html", params=params, qs=urlencode(params),
+                  back_to=back_to if back_to.startswith("/") else "", nav="discover")
+
+
+@router.get("/api/releases")
+async def api_releases(request: Request, kind: str, tmdb_id: int, season: int | None = None,
+                       episode: int | None = None):
+    if kind not in ("movie", "episode", "season") or (kind != "movie" and season is None) \
+            or (kind == "episode" and episode is None):
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    db = request.app.state.db
+    try:
+        s = await interactive.run(db, kind, tmdb_id, season, episode)
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+    return interactive.to_json(db, s)
+
+
+@router.post("/api/releases/grab")
+async def api_grab(request: Request):
+    body = await request.json()
+    ok, msg, item_id = await interactive.grab(request.app.state.db, str(body.get("id", "")),
+                                              int(body.get("i", -1)))
+    return {"ok": ok, "message": msg, "item": item_id}
 
 
 @router.post("/add")
 async def add_submit(request: Request, kind: str = Form(...), tmdb_id: int = Form(...),
-                     q: str = Form(""), seasons: str = Form("")):
+                     q: str = Form(""), seasons: str = Form(""), back_to: str = Form("")):
     db = request.app.state.db
+    dest = back_to if back_to.startswith("/") else (f"/discover?q={quote(q)}" if q else "/library")
+    sep = "&" if "?" in dest else "?"
     try:
         if kind == "movie":
             await catalog.add_movie(db, tmdb_id)
@@ -307,28 +444,36 @@ async def add_submit(request: Request, kind: str = Form(...), tmdb_id: int = For
             wanted = [int(s) for s in seasons.replace(" ", "").split(",") if s.isdigit()] or None
             await catalog.add_show(db, tmdb_id, seasons=wanted)
     except catalog.Blacklisted as e:
-        return back(f"/add?q={quote(q)}&error={quote(str(e) + ' (remove it on the Blacklist page)')}")
-    return back(f"/add?q={quote(q)}" if q else "/library")
+        return back(f"{dest}{sep}error={quote(str(e) + ' (remove it on the Blacklist page)')}")
+    return back(f"{dest}{sep}msg={quote('Added; it will be searched automatically')}"
+                if back_to else dest)
 
 
 @router.post("/add/block")
 async def add_block(request: Request, kind: str = Form(...), tmdb_id: int = Form(...),
-                    title: str = Form(""), q: str = Form("")):
+                    title: str = Form(""), q: str = Form(""), back_to: str = Form("")):
     blacklist.block(request.app.state.db, "movie" if kind == "movie" else "show", tmdb_id, title,
-                    reason="blocked from search")
-    return back(f"/add?q={quote(q)}")
+                    reason="blocked from Discover")
+    return back(back_to if back_to.startswith("/") else f"/discover?q={quote(q)}")
 
 
 # ------------------------------------------------------------------ database
 
 DB_SORTS = {"title": "title, season, episode", "state": "state, title", "added": "added_at DESC",
             "release": "release_date DESC", "done": "done_at DESC", "updated": "updated_at DESC"}
-PAGE_SIZE = 100
+PAGE_SIZES = (50, 100, 250, 500)
+DB_COLUMNS = [("id", "ID"), ("kind", "Type"), ("title", "Title"), ("year", "Year"), ("season", "S"),
+              ("episode", "E"), ("state", "State"), ("release_date", "Release date"),
+              ("release_name", "Release"), ("file_path", "File"), ("source", "Source"),
+              ("attempts", "Searches"), ("imdb_id", "IMDb"), ("tmdb_id", "TMDB"), ("tvdb_id", "TVDB"),
+              ("engine_id", "Engine id"), ("added_at", "Added"), ("updated_at", "Updated"),
+              ("done_at", "Collected")]
+DEFAULT_DB_COLUMNS = ["title", "state", "release_date", "release_name", "source", "added_at"]
 
 
 @router.get("/database", response_class=HTMLResponse)
 def database(request: Request, kind: str = "", state: str = "", q: str = "", source: str = "",
-             sort: str = "updated", page: int = 1, msg: str = ""):
+             sort: str = "updated", page: int = 1, msg: str = "", per: int = 100):
     db = request.app.state.db
     where, params = [], []
     if kind in ("movie", "episode"):
@@ -346,17 +491,19 @@ def database(request: Request, kind: str = "", state: str = "", q: str = "", sou
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     total = db.query(f"SELECT COUNT(*) n FROM items {clause}", tuple(params))[0]["n"]
     page = max(1, page)
+    per = per if per in PAGE_SIZES else 100
     rows = db.query(
-        "SELECT id, kind, tmdb_id, title, year, season, episode, state, release_date, release_name,"
-        f" attempts, added_at, done_at, source, mode FROM items {clause}"
-        f" ORDER BY {DB_SORTS.get(sort, DB_SORTS['updated'])} LIMIT ? OFFSET ?",
-        (*params, PAGE_SIZE, (page - 1) * PAGE_SIZE))
+        "SELECT id, kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode, state, release_date,"
+        " release_name, file_path, engine_id, attempts, added_at, updated_at, done_at, source, mode"
+        f" FROM items {clause} ORDER BY {DB_SORTS.get(sort, DB_SORTS['updated'])} LIMIT ? OFFSET ?",
+        (*params, per, (page - 1) * per))
     sources = [r["s"] for r in db.query("SELECT DISTINCT COALESCE(source, 'manual') s FROM items ORDER BY s")]
-    args = {"kind": kind, "state": state, "q": q, "source": source, "sort": sort}
+    args = {"kind": kind, "state": state, "q": q, "source": source, "sort": sort, "per": per}
     return render(request, "database.html", rows=rows, total=total, page=page,
-                  pages=max(1, -(-total // PAGE_SIZE)), args=args, states=[s.value for s in State],
+                  pages=max(1, -(-total // per)), args=args, states=[s.value for s in State],
+                  columns=DB_COLUMNS, default_columns=DEFAULT_DB_COLUMNS, page_sizes=PAGE_SIZES,
                   sources=sources, sorts=list(DB_SORTS), msg=msg,
-                  qs=urlencode({k: v for k, v in args.items() if v}))
+                  qs=urlencode({k: v for k, v in args.items() if v and not (k == "per" and v == 100)}))
 
 
 @router.post("/database/bulk")
@@ -372,6 +519,19 @@ async def database_bulk(request: Request):
     n = await manage.bulk(request.app.state.db, action, ids)
     sep = "&" if "?" in back_to else "?"
     return back(f"{back_to}{sep}msg={quote(f'{action.replace(chr(95), chr(32))}: {n} item(s)')}")
+
+
+@router.post("/database/row/{item_id}/{action}")
+async def database_row(request: Request, item_id: int, action: str):
+    form = await request.form()
+    back_to = form.get("back", "/database")
+    if not back_to.startswith("/"):
+        back_to = "/database"
+    if action in ("rescrape", "delete"):
+        n = await manage.bulk(request.app.state.db, action, [item_id])
+        sep = "&" if "?" in back_to else "?"
+        back_to = f"{back_to}{sep}msg={quote(f'{action}: {n} item(s)')}"
+    return back(back_to)
 
 
 # ------------------------------------------------------------------ blacklist
