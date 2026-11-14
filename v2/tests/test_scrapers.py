@@ -77,3 +77,29 @@ def test_newznab_parse_and_params():
     idx = IndexerConfig(type="newznab", url="https://idx", api_key="k")
     ps = newznab.params_list(idx, EP)
     assert ps[0]["t"] == "tvsearch" and ps[0]["imdbid"] == "0903747" and ps[0]["ep"] == 2
+
+
+def test_indexer_hourly_cap_pauses_only_that_host(monkeypatch):
+    import asyncio
+    from app import http as h
+    h.limit_host("idx.example", 2)
+    sent = []
+
+    class C:
+        is_closed = False
+
+        async def request(self, method, url, **kw):
+            sent.append(url)
+
+            class R:
+                status_code = 200
+                text = ""
+            return R()
+    monkeypatch.setattr(h, "_client", C())
+    asyncio.run(h.request("GET", "https://idx.example/api"))
+    asyncio.run(h.request("GET", "https://idx.example/api"))
+    import pytest
+    with pytest.raises(h.RateLimited):
+        asyncio.run(h.request("GET", "https://idx.example/api"))
+    asyncio.run(h.request("GET", "https://other.example/api"))   # other hosts unaffected
+    assert len(sent) == 3 and h.host_usage("idx.example") == (2, 2)

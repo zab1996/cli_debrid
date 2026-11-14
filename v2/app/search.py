@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import blacklist, config, scrapers
 from .db import DB
@@ -76,11 +76,10 @@ def plan(db: DB, items: list[Item]) -> list[Job]:
             jobs.append(Job(query_for(db, it), [it]))
         else:
             by_season.setdefault((it.tmdb_id, it.season), []).append(it)
-    # Season packs only come from debrid torrents (usenet packs are never used),
-    # so without a debrid service a pack search would be wasted indexer calls.
-    packs_ok = bool(config.get().debrid.provider and config.get().debrid.api_key)
+    # Two or more episodes of one season: search the season once and match
+    # single-episode releases (and, with debrid, packs) from that one list.
     for (tmdb_id, season), eps in by_season.items():
-        if packs_ok and len(eps) >= 2:
+        if len(eps) >= 2:
             q = query_for(db, eps[0])
             q.kind = "season"
             q.episode = None
@@ -107,6 +106,17 @@ def job_tag(job: Job) -> str:
     if len(job.items) == 1:
         return job.items[0].tag
     return f"[items {','.join(str(i.id) for i in job.items)} {job.label}]"
+
+
+async def fetch(db: DB, job: Job) -> list[Release]:
+    """Ask the indexers once for this job's query (no ranking)."""
+    return await scrapers.search_all(job.query)
+
+
+def rank_copy(db: DB, raw: list[Release], q: Query, items: list[Item]) -> list[Release]:
+    """Rank fresh copies of `raw` for one query (ranking mutates releases)."""
+    return rank([replace(r, parsed=dict(r.parsed), reject="", score=0.0) for r in raw], q,
+                config.get().quality, tried_keys(db, items))
 
 
 async def run(db: DB, job: Job) -> list[Release]:

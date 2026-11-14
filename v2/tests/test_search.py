@@ -33,6 +33,7 @@ def test_tried_keys_excludes_failed_only(db):
     assert db.get_item(i).state is State.WANTED
 
 
-def test_no_pack_search_without_debrid(db):
+def test_season_sweep_job_even_without_debrid(db):
     items = [db.get_item(_ep(db, 1, e)) for e in (1, 2, 3)]
-    assert [j.query.kind for j in search.plan(db, items)] == ["episode"] * 3
+    jobs = search.plan(db, items)
+    assert [(j.query.kind, len(j.items)) for j in jobs] == [("season", 3)]

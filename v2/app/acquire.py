@@ -26,6 +26,7 @@ log = logging.getLogger("clid2.acquire")
 
 SEARCH_BATCH = 10          # Wanted items handled per tick
 CANDIDATES = 5             # releases tried per search before giving up for now
+SWEEP_FALLBACK = 5         # per season search: episodes that may get their own search
 UPGRADE_MARGIN = 5.0       # an upgrade must beat the current score by this much
 TIMEOUT = {"torrent": 6 * 3600, "nzb": 2 * 3600}
 VANISH_GRACE = 300         # an engine id that never appears is failed after this
@@ -74,14 +75,71 @@ def current_pick(db: DB, item: Item) -> tuple[str, float | None] | None:
     return (rows[0]["release_key"], rows[0]["score"]) if rows else None
 
 
+async def _try_candidates(db: DB, items: list[Item], results: list[Release], tag: str,
+                          label: str, upgrade: bool = False) -> bool:
+    for n, r in enumerate(results[:CANDIDATES], 1):
+        log.info("%s trying #%d (%s, %.1fGB, score %.1f, %s): %s", tag, n, r.protocol, r.size_gb,
+                 r.score, r.indexer, r.title)
+        try:
+            await hand_over(db, items, r, label=label, upgrade=upgrade)
+        except engine.EngineDown:
+            raise
+        except http.RateLimited as e:
+            # Our own indexer cap, not the release's fault: try again later.
+            log.info("%s   not fetched yet: %s", tag, e)
+            return False
+        except Exception as e:
+            log.info("%s   rejected: %s: %s", tag, type(e).__name__, e)
+            for it in items:
+                db.record_release(it.id, r.key, r.title, r.score, "failed")
+            continue
+        return True
+    return False
+
+
+async def _run_season(db: DB, job: search.Job) -> bool:
+    """One search for a whole season, shared by every wanted episode in it.
+
+    1. Ask the indexers once for the season (ID search pages through results).
+    2. With debrid, a season pack covering everything is tried first.
+    3. Each episode then picks its best single-episode release from that list.
+    4. Episodes still without a match get their own search, at most
+       SWEEP_FALLBACK per sweep; the rest wait for the next round.
+    """
+    tag = search.job_tag(job)
+    raw = await search.fetch(db, job)
+    cfg = config.get()
+    if cfg.debrid.provider and cfg.debrid.api_key:
+        packs = search.rank_copy(db, raw, job.query, job.items)
+        if packs:
+            await _mark_cached(packs, job.query)
+            if await _try_candidates(db, job.items, packs, tag, job.label):
+                return True
+    matched, leftovers = 0, []
+    for it in job.items:
+        q = search.query_for(db, it)
+        cands = search.rank_copy(db, raw, q, [it])
+        if cands:
+            await _mark_cached(cands, q)
+            if await _try_candidates(db, [it], cands, it.tag, it.label):
+                matched += 1
+                continue
+        leftovers.append(it)
+    log.info("%s season search (%d results) covered %d of %d episodes; %d left", tag, len(raw),
+             matched, len(job.items), len(leftovers))
+    for it in leftovers[:SWEEP_FALLBACK]:
+        if await run_job(db, search.Job(search.query_for(db, it), [it])):
+            matched += 1
+    for it in leftovers[SWEEP_FALLBACK:]:
+        _nothing_found(db, db.get_item(it.id) or it)
+    return matched > 0
+
+
 async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
     """Search and submit. Returns True if something was handed to the engine."""
+    if job.query.kind == "season" and not upgrade:
+        return await _run_season(db, job)
     results = await search.run(db, job)
-    if not results and job.query.kind == "season":
-        ok = False
-        for sub in search.split(db, job):
-            ok = await run_job(db, sub, upgrade) or ok
-        return ok
     if results:
         await _mark_cached(results, job.query)
     if upgrade:
@@ -91,18 +149,7 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
             return False
         results = results[:1]  # only the clearly better one
     tag = search.job_tag(job)
-    for n, r in enumerate(results[:CANDIDATES], 1):
-        log.info("%s trying #%d (%s, %.1fGB, score %.1f, %s): %s", tag, n, r.protocol, r.size_gb,
-                 r.score, r.indexer, r.title)
-        try:
-            await hand_over(db, job.items, r, label=job.label, upgrade=upgrade)
-        except engine.EngineDown:
-            raise  # not the release's fault; caller puts the items back
-        except Exception as e:
-            log.info("%s   rejected: %s: %s", tag, type(e).__name__, e)
-            for it in job.items:
-                db.record_release(it.id, r.key, r.title, r.score, "failed")
-            continue
+    if await _try_candidates(db, job.items, results, tag, job.label, upgrade):
         return True
     if results:
         log.info("%s none of the top %d candidates were accepted", tag, min(len(results), CANDIDATES))

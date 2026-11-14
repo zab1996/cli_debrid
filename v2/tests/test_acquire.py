@@ -209,3 +209,36 @@ def test_engine_down_does_not_burn_releases(env, db):
         engine.add_magnet = orig
     assert db.get_item(mid).state is State.WANTED
     assert db.query("SELECT COUNT(*) n FROM releases_tried")[0]["n"] == 0
+
+
+def test_usenet_season_sweep_one_search_for_many_episodes(env, db, monkeypatch):
+    fe, results, tmp = env
+    config.get().usenet = [config.UsenetProvider(host="h")]
+    calls = []
+
+    async def search_all(q):
+        calls.append((q.kind, q.episode))
+        if q.kind == "season":
+            return [Release(title=f"Breaking.Bad.S01E0{e}.1080p.WEB", protocol="nzb", indexer="n",
+                            size_gb=2, nzb_url=f"u{e}", guid=f"g{e}") for e in (1, 2)] + [
+                Release(title="Breaking.Bad.S01.1080p.WEB", protocol="nzb", indexer="n", size_gb=20,
+                        nzb_url="pack", guid="pack")]
+        return []
+    monkeypatch.setattr(scrapers, "search_all", search_all)
+    submitted = []
+
+    async def add_nzb(nzb, name):
+        submitted.append(name)
+        return "nzb-" + name
+
+    async def fetch(url):
+        return b"<nzb></nzb>"
+    monkeypatch.setattr(engine, "add_nzb", add_nzb)
+    monkeypatch.setattr(acquire, "_fetch_nzb", fetch)
+    ids = [db.add_item(kind="episode", tmdb_id=1396, title="Breaking Bad", year=2008, season=1,
+                       episode=e) for e in (1, 2, 3)]
+    run(acquire.search_wanted(db))
+    assert calls == [("season", None), ("episode", 3)]       # 2 searches, not 3 (and never the pack)
+    assert sorted(submitted) == ["Breaking.Bad.S01E01.1080p.WEB", "Breaking.Bad.S01E02.1080p.WEB"]
+    states = [db.get_item(i).state for i in ids]
+    assert states == [State.DOWNLOADING, State.DOWNLOADING, State.WAITING]

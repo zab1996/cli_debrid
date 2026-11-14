@@ -61,4 +61,7 @@ async def search(idx: IndexerConfig, q: Query) -> list[Release]:
     async def one(p: dict) -> list[Release]:
         return parse(await http.get_json(url, params=p, headers=headers, timeout=40))
     results = await asyncio.gather(*(one(p) for p in params_list(q)), return_exceptions=True)
+    limited = [r for r in results if isinstance(r, http.RateLimited)]
+    if limited and not any(isinstance(r, list) and r for r in results):
+        raise limited[0]
     return [r for rs in results if isinstance(rs, list) for r in rs]

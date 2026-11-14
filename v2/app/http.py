@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import deque
 from typing import Any
 
 import httpx
@@ -37,6 +39,47 @@ async def close() -> None:
         _client = None
 
 
+class RateLimited(Exception):
+    """Our own per-host cap was reached (indexer API protection)."""
+
+
+# host -> (max requests per hour, timestamps of recent requests)
+_limits: dict[str, tuple[int, deque]] = {}
+
+
+def limit_host(host: str, per_hour: int) -> None:
+    """Cap requests to `host` (used for indexers so daily API quotas aren't burned)."""
+    old = _limits.get(host)
+    _limits[host] = (per_hour, old[1] if old else deque())
+
+
+def host_usage(host: str) -> tuple[int, int]:
+    """(requests in the last hour, cap) for a limited host."""
+    lim = _limits.get(host)
+    if not lim:
+        return 0, 0
+    _prune(lim[1])
+    return len(lim[1]), lim[0]
+
+
+def _prune(q: deque) -> None:
+    cutoff = time.time() - 3600
+    while q and q[0] < cutoff:
+        q.popleft()
+
+
+def _take(url: str) -> None:
+    host = httpx.URL(url).host
+    lim = _limits.get(host)
+    if not lim:
+        return
+    cap, q = lim
+    _prune(q)
+    if len(q) >= cap:
+        raise RateLimited(f"{host}: {cap} requests in the last hour (limit reached)")
+    q.append(time.time())
+
+
 class HTTPError(Exception):
     def __init__(self, status: int, url: str, body: str = ""):
         super().__init__(f"HTTP {status} for {url}: {body[:200]}")
@@ -44,6 +87,7 @@ class HTTPError(Exception):
 
 
 async def request(method: str, url: str, *, retries: int = 3, **kw: Any) -> httpx.Response:
+    _take(url)
     delay = 1.0
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
