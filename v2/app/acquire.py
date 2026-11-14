@@ -142,11 +142,21 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
     if results:
         await _mark_cached(results, job.query)
     if upgrade:
+        # Compare against the current release scored the same way, today: a
+        # score saved earlier may come from an older formula or version.
         cur = current_pick(db, job.items[0])
-        results = [r for r in results if not cur or r.key != cur[0]]
-        if not results or (cur and cur[1] is not None and results[0].score < cur[1] + UPGRADE_MARGIN):
+        if not cur:
             return False
-        results = results[:1]  # only the clearly better one
+        current = next((r for r in results if r.key == cur[0]), None)
+        if current is None:
+            # Not in today's results (or no longer passes the version): leave it.
+            log.debug("%s upgrade check: current release not in results; skipped", job.items[0].tag)
+            return False
+        better = [r for r in results if r.key != cur[0] and r.score >= current.score + UPGRADE_MARGIN]
+        if not better:
+            return False
+        log.info("%s upgrade: %.1f -> %.1f", job.items[0].tag, current.score, better[0].score)
+        results = better[:1]  # only the clearly better one
     tag = search.job_tag(job)
     if await _try_candidates(db, job.items, results, tag, job.label, upgrade):
         return True

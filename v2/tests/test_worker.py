@@ -56,3 +56,26 @@ def test_wake_waiting_and_failed_retry(db):
     asyncio.run(w.run_once())
     again = db.get_item(fail_id)
     assert again.state is State.WANTED and again.attempts == 0
+
+
+def test_daily_steps_remember_last_run_across_restarts(db):
+    calls = []
+
+    def make():
+        w = Worker(tick=0.01, db=db)
+
+        @w.every(86400)
+        async def daily():
+            calls.append("daily")
+
+        @w.every(0)
+        async def often():
+            calls.append("often")
+        return w
+    w1 = make()
+    w1._load_last_runs()
+    asyncio.run(w1.run_once())
+    w2 = make()               # "restart"
+    w2._load_last_runs()
+    asyncio.run(w2.run_once())
+    assert calls.count("daily") == 1 and calls.count("often") == 2

@@ -243,3 +243,23 @@ def test_usenet_season_sweep_one_search_for_many_episodes(env, db, monkeypatch):
     assert sorted(submitted) == ["Breaking.Bad.S01E01.1080p.WEB", "Breaking.Bad.S01E02.1080p.WEB"]
     states = [db.get_item(i).state for i in ids]
     assert states == [State.DOWNLOADING, State.DOWNLOADING, State.WAITING]
+
+
+def test_upgrade_ignores_scores_saved_by_an_older_formula(env, db):
+    fe, results, tmp = env
+    results += [T("The.Matrix.1999.1080p.BluRay.x264", "cur", 10)]
+    mid = db.add_item(kind="movie", tmdb_id=603, title="The Matrix", year=1999)
+    run(acquire.search_wanted(db))
+    fe.ready(H("cur"), ["m.mkv"])
+    run(acquire.check_downloads(db))
+    # Pretend the saved score came from an old, much smaller scale.
+    with db.tx() as c:
+        c.execute("UPDATE releases_tried SET score=1 WHERE outcome='picked'")
+    results.append(T("The.Matrix.1999.1080p.WEB", "similar", 9))   # not clearly better today
+    from app.repair import upgrades
+    run(upgrades.sweep(db))
+    assert db.get_item(mid).state is State.DONE
+    results.clear()                                                   # current release not found
+    results.append(T("The.Matrix.1999.2160p.BluRay", "x", 40))
+    run(upgrades.sweep(db))
+    assert db.get_item(mid).state is State.DONE

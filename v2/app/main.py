@@ -67,7 +67,7 @@ def create_app(db_path: str | None = None, start_worker: bool = True,
         _file_logging()
         db = DB(db_path or str(config.DATA_DIR / "clid2.db"))
         acquire.recover_interrupted(db)
-        worker = Worker()
+        worker = Worker(db=db)
         register(worker, db)
         engine = EngineProcess()
         app.state.db = db

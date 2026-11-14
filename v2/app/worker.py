@@ -32,11 +32,31 @@ class Step:
         return now - self.last_run >= self.every
 
 
+REMEMBER_AFTER = 3600   # steps that run hourly or less often keep their last run across restarts
+
+
 class Worker:
-    def __init__(self, tick: float = TICK_SECONDS):
+    def __init__(self, tick: float = TICK_SECONDS, db=None):
         self.tick = tick
         self.steps: list[Step] = []
         self._stop = asyncio.Event()
+        self.db = db
+
+    def _load_last_runs(self) -> None:
+        if self.db is None:
+            return
+        for s in self.steps:
+            if s.every >= REMEMBER_AFTER:
+                rows = self.db.query("SELECT value FROM kv WHERE key=?", (f"step:{s.name}",))
+                if rows:
+                    s.last_run = float(rows[0]["value"])
+
+    def _save_last_run(self, step: "Step") -> None:
+        if self.db is None or step.every < REMEMBER_AFTER:
+            return
+        with self.db.tx() as c:
+            c.execute("INSERT OR REPLACE INTO kv(key, value) VALUES (?, ?)",
+                      (f"step:{step.name}", str(step.last_run)))
 
     def every(self, seconds: float, name: str | None = None):
         """Decorator: register an async step that runs every `seconds`."""
@@ -52,6 +72,7 @@ class Worker:
             if not step.due(t):
                 continue
             step.last_run = t
+            self._save_last_run(step)
             try:
                 await step.fn()
                 step.last_error = None
@@ -61,6 +82,7 @@ class Worker:
             step.runs += 1
 
     async def run_forever(self) -> None:
+        self._load_last_runs()
         log.info("worker started with steps: %s", ", ".join(s.name for s in self.steps))
         while not self._stop.is_set():
             await self.run_once()
