@@ -19,14 +19,42 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
-// Menu groups open on click too (touch screens), close when clicking elsewhere.
-document.addEventListener('click', (ev) => {
-  const title = ev.target.closest('.group-title');
-  document.querySelectorAll('.menu-group.open').forEach(g => {
-    if (!title || g !== title.parentElement) g.classList.remove('open');
+// Sidebar: collapsible sections (remembered), icon-rail toggle, mobile drawer.
+(() => {
+  const sb = document.getElementById('sidebar');
+  if (!sb) return;
+  const store = (k, v) => { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} };
+  const load = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  sb.querySelectorAll('.sb-group[data-group]').forEach(g => {
+    const t = g.querySelector('.sb-title');
+    if (!t) return;
+    // the section holding the current page always starts open
+    if (load('sb_' + g.dataset.group) === 'closed' && !g.classList.contains('current')) {
+      g.classList.add('closed'); t.setAttribute('aria-expanded', 'false');
+    }
+    t.addEventListener('click', () => {
+      const closed = g.classList.toggle('closed');
+      t.setAttribute('aria-expanded', String(!closed));
+      store('sb_' + g.dataset.group, closed ? 'closed' : undefined);
+    });
   });
-  if (title) title.parentElement.classList.toggle('open');
-});
+  document.getElementById('sbCollapse').addEventListener('click', () => {
+    const mini = document.documentElement.classList.toggle('sb-mini');
+    store('sbCollapsed', mini ? '1' : undefined);
+  });
+  const backdrop = document.getElementById('sbBackdrop');
+  const open = (on) => { sb.classList.toggle('open', on); backdrop.classList.toggle('open', on); };
+  document.getElementById('sbOpen').addEventListener('click', () => open(true));
+  backdrop.addEventListener('click', () => open(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
+})();
+
+// Small count badges on sidebar links (fed by the status poll below).
+function setNavBadge(key, n, bad = false) {
+  const b = document.querySelector(`.sb-links a[data-key="${key}"] .sb-badge`);
+  if (!b) return;
+  b.hidden = !n; b.textContent = n > 99 ? '99+' : n; b.classList.toggle('bad', bad);
+}
 
 // Settings tabs (remembers the last one).
 (() => {
@@ -43,7 +71,7 @@ document.addEventListener('click', (ev) => {
   if (saved && document.querySelector(`.tabs [data-tab="${saved}"]`)) show(saved);
 })();
 
-// Engine status chip in the header.
+// Engine status chip in the sidebar (+ nav badges).
 (() => {
   const dot = document.getElementById('engineDot');
   const label = document.getElementById('engineLabel');
@@ -59,9 +87,12 @@ document.addEventListener('click', (ev) => {
       const busy = (r.counts.Searching || 0) + (r.counts.Downloading || 0);
       if (cls === 'ok' && busy) text = `Running · ${busy} active`;
       dot.className = 'dot ' + cls; label.textContent = text;
+      const failed = r.counts.Failed || 0;
+      setNavBadge('queues', busy || failed, !busy && failed > 0);
+      setNavBadge('mount', ((r.mount || {}).streams || []).length);
     } catch (e) { dot.className = 'dot bad'; label.textContent = 'Offline'; }
   };
-  update(); setInterval(update, 20000);
+  update(); setInterval(update, 15000);
 })();
 
 // Secrets are masked; show them while the field is being edited.
@@ -104,6 +135,7 @@ document.addEventListener('submit', (e) => {
     let data;
     try { data = await (await fetch('/api/inbox')).json(); } catch (e) { return; }
     count.hidden = !data.unread; count.textContent = data.unread > 99 ? '99+' : data.unread;
+    const hd = document.getElementById('hamDot'); if (hd) hd.hidden = !data.unread;
     list.innerHTML = data.items.length ? data.items.map(row).join('') : '<div class="empty">Nothing yet.</div>';
     if (lastSeen === null) { lastSeen = data.latest; }            // first visit: don't replay history
     const fresh = data.items.filter(n => n.id > lastSeen).reverse().slice(-4);

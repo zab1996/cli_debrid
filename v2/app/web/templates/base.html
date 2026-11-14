@@ -10,8 +10,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ asset('style.css') }}">
+  <script>try { if (localStorage.getItem('sbCollapsed') === '1') document.documentElement.classList.add('sb-mini'); } catch (e) {}</script>
 </head>
-<body>
+<body class="{{ 'has-sb' if nav != 'setup' }}">
 {% set icons = {
   'Home': 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
   'Discover': 'M12 6v6m0 0v6m0-6h6m-6 0H6',
@@ -25,32 +26,25 @@
   'Database': 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4',
   'Blacklist': 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636',
 } %}
-{% set menu = {
-  'Main': [('/', 'Home', 'home'), ('/discover', 'Discover', 'discover'), ('/library', 'Library', 'library'), ('/queues', 'Queues', 'queues'), ('/mount', 'Mount', 'mount'), ('/calendar', 'Calendar', 'calendar')],
-  'System': [('/settings', 'Settings', 'settings'), ('/logs', 'Logs', 'logs'), ('/database', 'Database', 'database'), ('/blacklist', 'Blacklist', 'blacklist'), ('/setup', 'Setup', 'setup')],
-} %}
-  <header>
-    <a class="brand" href="/">
-      <img src="/static/white-icon-32x32.png" alt="">
-      <span class="t"><span class="name">cli_debrid</span><span class="ver">v{{ version }}</span></span>
-    </a>
-    {% if nav != 'setup' %}
-    <button class="hamburger" aria-label="Menu" onclick="document.querySelector('nav').classList.toggle('open')">☰</button>
-    <nav>
-      <ul id="navMenu">
-        {% for group, items in menu.items() %}
-        <li class="menu-group {{ 'current' if nav in items | map(attribute=2) | list }}">
-          <a class="group-title">{{ group }} <span class="caret">▼</span></a>
-          <ul class="dropdown">
-            {% for href, label, key in items %}
-            <li><a href="{{ href }}" class="{{ 'on' if nav == key }}"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icons[label] }}"/></svg>{{ label }}</a></li>
-            {% endfor %}
-          </ul>
-        </li>
-        {% endfor %}
-      </ul>
-    </nav>
-    <div class="header-controls">
+{% set menu = [
+  ('', [('/', 'Home', 'home')]),
+  ('Media', [('/discover', 'Discover', 'discover'), ('/library', 'Library', 'library'), ('/calendar', 'Calendar', 'calendar')]),
+  ('Activity', [('/queues', 'Queues', 'queues'), ('/mount', 'Mount', 'mount'), ('/logs', 'Logs', 'logs')]),
+  ('Manage', [('/database', 'Database', 'database'), ('/blacklist', 'Blacklist', 'blacklist')]),
+  ('System', [('/settings', 'Settings', 'settings'), ('/setup', 'Setup', 'setup')]),
+] %}
+  {% if nav != 'setup' %}
+  <div class="mobilebar">
+    <button class="hamburger" id="sbOpen" type="button" aria-label="Menu">☰<span class="hdot" id="hamDot" hidden></span></button>
+    <a class="brand" href="/"><img src="/static/white-icon-32x32.png" alt=""><span class="name">cli_debrid</span></a>
+  </div>
+  <div class="sb-backdrop" id="sbBackdrop"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-top">
+      <a class="brand" href="/" title="cli_debrid v{{ version }}">
+        <img src="/static/white-icon-32x32.png" alt="">
+        <span class="t"><span class="name">cli_debrid</span><span class="ver">v{{ version }}</span></span>
+      </a>
       <div class="bellwrap">
         <button class="bell" id="bellBtn" type="button" aria-label="Notifications" title="Notifications">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
@@ -61,13 +55,31 @@
           <div class="belllist" id="bellList"><div class="empty">Nothing yet.</div></div>
         </div>
       </div>
-      <a class="status-chip" href="/" id="engineChip" title="Mount engine">
+    </div>
+    <nav class="sb-nav" id="navMenu">
+      {% for group, items in menu %}
+      {% set current = nav in items | map(attribute=2) | list %}
+      <div class="sb-group{{ ' current' if current }}" data-group="{{ group or 'top' }}">
+        {% if group %}<button class="sb-title" type="button" aria-expanded="true"><span>{{ group }}</span><span class="caret">▾</span></button>{% endif %}
+        <ul class="sb-links">
+          {% for href, label, key in items %}
+          <li><a href="{{ href }}" class="{{ 'on' if nav == key }}" title="{{ label }}" data-key="{{ key }}">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icons[label] }}"/></svg>
+            <span class="lbl">{{ label }}</span><span class="sb-badge" hidden></span></a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </nav>
+    <div class="sb-foot">
+      <a class="status-chip" href="/mount" id="engineChip" title="Mount engine">
         <span class="dot" id="engineDot"></span><span class="label" id="engineLabel">Engine</span>
       </a>
+      <button class="sb-collapse" id="sbCollapse" type="button" title="Collapse sidebar" aria-label="Collapse sidebar">«</button>
     </div>
-    {% endif %}
-  </header>
-  <main class="container">{% block content %}{% endblock %}</main>
+  </aside>
+  {% endif %}
+  <main class="container{{ ' nosb' if nav == 'setup' }}">{% block content %}{% endblock %}</main>
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="{{ asset('app.js') }}"></script>
 </body>
