@@ -43,6 +43,7 @@
     <ul class="rows">
       {% for e in aired %}
       <li><a class="ttl {{ '' if e.state == 'Done' else 'missing' }}" href="/item/{{ e.id }}">{{ e.title }} S{{ '%02d' % e.season }}E{{ '%02d' % e.episode }}</a>
+        {% if e.state == 'Done' and e.release_name %}<span class="sbadges aired" data-scene="extra">{{ e.release_name }}</span>{% endif %}
         <span class="when">{% if e.state != 'Done' %}<span class="tag {{ e.state }}">{{ e.state }}</span> {% endif %}{{ e.release_date }}</span></li>
       {% endfor %}
     </ul>

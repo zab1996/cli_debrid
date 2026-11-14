@@ -66,6 +66,18 @@ def _duration(seconds: float) -> str:
 templates.env.filters["duration"] = _duration
 
 
+def _asset(name: str) -> str:
+    """Static URL with an mtime stamp, so a live patch reaches browsers instead
+    of them reusing a heuristically cached old copy."""
+    try:
+        return f"/static/{name}?v={int((STATIC_DIR / name).stat().st_mtime)}"
+    except OSError:
+        return f"/static/{name}"
+
+
+templates.env.globals["asset"] = _asset
+
+
 def render(request: Request, name: str, **ctx):
     ctx.setdefault("nav", name.split(".")[0])
     return templates.TemplateResponse(request, name, ctx)
@@ -132,7 +144,7 @@ async def home(request: Request):
         "SELECT id, tmdb_id, title, season, episode, release_name, done_at FROM items"
         " WHERE kind='episode' AND state='Done' ORDER BY done_at DESC LIMIT 20")
     aired = db.query(
-        "SELECT id, title, season, episode, release_date, state FROM items WHERE kind='episode'"
+        "SELECT id, title, season, episode, release_date, state, release_name FROM items WHERE kind='episode'"
         " AND release_date BETWEEN ? AND ? ORDER BY release_date DESC, title LIMIT 60",
         (week_ago, today))
     airing_soon = db.query(

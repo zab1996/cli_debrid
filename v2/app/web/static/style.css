@@ -437,3 +437,7 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surf3); padd
 .box.streams .rows li .ttl { flex: 1; }
 .box.streams .sbadges { flex-shrink: 0; }
 @media (max-width: 700px) { .box.streams .sbadges { display: none; } }
+
+.rows li .sbadges.aired { margin-left: auto; flex-shrink: 1; min-width: 0; overflow: hidden; }
+.rows li .sbadges.aired .qtags { flex-wrap: nowrap; }
+@media (max-width: 700px) { .rows li .sbadges.aired { display: none; } }
