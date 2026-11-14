@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Tensai75/nzbparser"
@@ -43,6 +44,23 @@ type NZBParser struct {
 	manager       *nntp.Client // Connection manager for parsing operations
 	maxConcurrent int          // Max concurrent connections
 	par2Descs     []Par2FileDesc
+	// set by processFileGroups when the main content failed and only a small
+	// leftover (usually an unlabelled sample) parsed
+	incomplete error
+}
+
+// leftoverRatio: when archive groups fail, the media that did parse must be at
+// least this fraction of the failed archives' size, or the NZB is rejected.
+const leftoverRatio = 4
+
+func groupBytes(g *FileGroup) int64 {
+	var n int64
+	for _, f := range g.Files {
+		for _, s := range f.Segments {
+			n += int64(s.Bytes)
+		}
+	}
+	return n
 }
 
 type fileAnalysisResult struct {
@@ -348,8 +366,12 @@ func (p *NZBParser) Process(ctx context.Context, nzb *storage.NZB, groups map[st
 
 	// Parse each group (with deferred archive option)
 	p.par2Descs = nil
+	p.incomplete = nil
 	files := p.processFileGroups(ctx, groups, nzb.Password)
 
+	if p.incomplete != nil {
+		return nil, p.incomplete
+	}
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no valid files found in NZB")
 	}
@@ -932,10 +954,18 @@ func (p *NZBParser) processFileGroups(ctx context.Context, groups map[string]*Fi
 		MaxGoroutines: p.maxConcurrent,
 	}
 
+	var failedMu sync.Mutex
+	var failedArchiveBytes int64
 	results := mapper.Map(fileGroups, func(g *FileGroup) []*storage.NZBFile {
 		files, err := p.processFileGroup(ctx, g, password)
 		if err != nil {
 			p.logger.Warn().Err(err).Str("group", g.BaseName).Msg("Failed to process file group")
+			switch g.Type {
+			case storage.NZBFileTypeRar, storage.NZBFileTypeSevenZip, storage.NZBFileTypeZip, storage.NZBFileTypeUnknown:
+				failedMu.Lock()
+				failedArchiveBytes += groupBytes(g)
+				failedMu.Unlock()
+			}
 			return nil
 		}
 		return files
@@ -959,6 +989,23 @@ func (p *NZBParser) processFileGroups(ctx context.Context, groups map[string]*Fi
 					mediaCounts++
 				}
 			}
+		}
+	}
+
+	// The main archive failed (missing first volume, missing articles) and only
+	// a small file survived - e.g. an unlabelled sample "238235-0.mkv" next to
+	// a 2.4 GB RAR set. Serving it would put a one-minute clip in the library.
+	if failedArchiveBytes > 0 {
+		var kept int64
+		for _, f := range files {
+			kept += f.Size
+		}
+		if kept*leftoverRatio < failedArchiveBytes {
+			p.logger.Warn().Int64("kept_bytes", kept).Int64("failed_archive_bytes", failedArchiveBytes).
+				Int("kept_files", len(files)).Msg("Main archive failed; only a small leftover parsed - rejecting NZB")
+			p.incomplete = fmt.Errorf("main archive failed to parse (%d MB unreadable); only %d MB of other files parsed",
+				failedArchiveBytes>>20, kept>>20)
+			return nil
 		}
 	}
 
