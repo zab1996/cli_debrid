@@ -441,3 +441,9 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surf3); padd
 .rows li .sbadges.aired { margin-left: auto; flex-shrink: 1; min-width: 0; overflow: hidden; }
 .rows li .sbadges.aired .qtags { flex-wrap: nowrap; }
 @media (max-width: 700px) { .rows li .sbadges.aired { display: none; } }
+
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--text); }
+th.sortable .arrow { margin-left: 5px; font-size: 10px; opacity: .35; }
+th.sortable.sorted { color: var(--accent); }
+th.sortable.sorted .arrow { opacity: 1; }

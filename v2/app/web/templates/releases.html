@@ -11,7 +11,6 @@
     <input id="fText" placeholder="Filter (e.g. 2160p, REMUX, group…)" style="flex:1;min-width:180px">
     <select id="fProto"><option value="">Torrent + usenet</option><option value="torrent">Torrent</option><option value="nzb">Usenet</option></select>
     <select id="fRes"><option value="">Any resolution</option><option>2160p</option><option>1080p</option><option>720p</option></select>
-    <select id="fSort"><option value="score">Sort: best first</option><option value="size">Sort: size</option><option value="seeders">Sort: seeders</option><option value="title">Sort: name</option></select>
     <label class="check" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="fRej"> Show rejected</label>
     <span class="sel" id="relCount"></span>
   </div>
@@ -21,6 +20,9 @@
 (() => {
   const params = {{ qs | tojson }};
   let data = null;
+  // Click a column header to sort; click again to flip. Score starts best-first.
+  let sort = { key: 'score', dir: -1 };
+  const firstDir = { score: -1, size: -1, source: 1, title: 1 };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const tag = (t, cls='') => t ? `<span class="rtag ${cls}">${esc(t)}</span>` : '';
@@ -45,16 +47,22 @@
   function render() {
     if (!data) return;
     const text = $('fText').value.toLowerCase(), proto = $('fProto').value, res = $('fRes').value;
-    const rej = $('fRej').checked, sort = $('fSort').value;
+    const rej = $('fRej').checked;
     let rows = data.results.filter(r => (rej || !r.reject) && (!proto || r.protocol === proto)
       && (!res || r.resolution === res) && (!text || r.title.toLowerCase().includes(text) || r.indexer.toLowerCase().includes(text)));
-    const by = { size: (a, b) => b.size_gb - a.size_gb, seeders: (a, b) => b.seeders - a.seeders,
-                 title: (a, b) => a.title.localeCompare(b.title),
-                 score: (a, b) => (!!a.reject - !!b.reject) || ((b.score ?? -1e9) - (a.score ?? -1e9)) };
-    rows.sort(by[sort]);
+    const d = sort.dir;
+    const by = { size: (a, b) => d * ((a.size_gb || 0) - (b.size_gb || 0)),
+                 title: (a, b) => d * a.title.localeCompare(b.title),
+                 source: (a, b) => d * (a.protocol.localeCompare(b.protocol) || a.indexer.localeCompare(b.indexer))
+                                   || (b.seeders || 0) - (a.seeders || 0),
+                 // rejected releases always sink below acceptable ones
+                 score: (a, b) => (!!a.reject - !!b.reject) || d * ((a.score ?? -1e9) - (b.score ?? -1e9)) };
+    rows.sort((a, b) => by[sort.key](a, b) || (b.score ?? -1e9) - (a.score ?? -1e9));
+    const th = (key, label, cls = '') => `<th class="sortable ${cls}${sort.key === key ? ' sorted' : ''}" data-sort="${key}">${label}` +
+      `<span class="arrow">${sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : '↕'}</span></th>`;
     $('relCount').textContent = `${rows.length} shown`;
     if (!rows.length) { $('relBody').innerHTML = `<div class="empty">${data.results.length ? 'Nothing matches the filters' + (rej ? '' : ' (try "Show rejected")') : 'No releases found on any indexer.'}</div>`; return; }
-    $('relBody').innerHTML = `<table class="list rel"><tr><th>Release</th><th class="hide-sm">Size</th><th class="hide-sm">Source</th><th>Score</th><th></th></tr>` +
+    $('relBody').innerHTML = `<table class="list rel"><tr>${th('title', 'Release')}${th('size', 'Size', 'hide-sm')}${th('source', 'Source', 'hide-sm')}${th('score', 'Score')}<th></th></tr>` +
       rows.map(r => `<tr class="${r.reject ? 'rejected' : ''}">
         <td><div class="rname">${esc(r.title)}</div>
           <div class="rtags">${(window.sceneBadges && sceneBadges(r.title)) || (tag(r.resolution, 'res') + tag(r.source) + tag(r.codec) + tag(r.hdr, 'hdr') + tag(r.audio))}${tag(r.languages)}
@@ -66,6 +74,13 @@
         <td style="text-align:right">${r.grabbable ? `<button class="btn small ${r.reject ? '' : 'primary'}" data-grab="${r.i}">Grab</button>` : ''}</td></tr>`).join('') + '</table>';
   }
 
+  document.addEventListener('click', (e) => {
+    const h = e.target.closest('th[data-sort]');
+    if (!h) return;
+    const key = h.dataset.sort;
+    sort = sort.key === key ? { key, dir: -sort.dir } : { key, dir: firstDir[key] };
+    render();
+  });
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-grab]');
     if (!b) return;
@@ -81,7 +96,7 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) { b.disabled = false; b.textContent = 'Grab'; }
   });
-  ['fText', 'fProto', 'fRes', 'fSort', 'fRej'].forEach(id => $(id).addEventListener('input', render));
+  ['fText', 'fProto', 'fRes', 'fRej'].forEach(id => $(id).addEventListener('input', render));
   $('relAgain').addEventListener('click', load);
   load();
 })();

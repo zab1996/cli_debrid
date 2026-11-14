@@ -130,7 +130,7 @@ document.addEventListener('submit', (e) => {
                           ['2160p', rx('4k|uhd')]]],
     ['source', true, [['REMUX', rx('remux')]]],
     ['source', true, [['BluRay', rx('blu-?ray|bdmv|bdrip|brrip')], ['WEB-DL', rx('web-?dl')],
-                      ['WEBRip', rx('webrip')], ['WEB', rx('web')], ['HDTV', rx('hdtv')], ['DVD', rx('dvdrip|dvd')]]],
+                      ['WEBRip', rx('webrip')], ['WEB', rx('web')], ['HD-DVD', rx('hd-?dvd')], ['HDTV', rx('hdtv')], ['DVD', rx('dvdrip|dvd')]]],
     ['codec', true, [['x265', rx('[xh]\\.?265|hevc', false)], ['x264', rx('[xh]\\.?264|avc', false)], ['AV1', rx('av1')], ['VP9', rx('vp9')]]],
     ['audio', true, [['TrueHD', rx('truehd', false)], ['DTS-HD MA', rx('dts-?hd[ .-]?ma', false)], ['DTS-X', rx('dts-?x')],
                      ['DTS', rx('dts', false)], ['DD+', rx('dd\\+|ddp|e-?ac-?3', false)], ['DD', rx('dd|ac-?3', false)],
