@@ -13,13 +13,57 @@
     </select>
   </form>
 </div>
-<pre class="log" id="log">{{ text }}</pre>
+<pre class="log" id="logRaw" hidden>{{ text }}</pre>
+<div class="logview" id="log"></div>
 <script>
-  const l = document.getElementById('log'); const all = l.textContent; l.scrollTop = l.scrollHeight;
+(() => {
+  // 1.x-style colouring: level-coloured line + left border, grey timestamp,
+  // orange logger, yellow durations; plus v2's [item N ...] tags and state moves.
+  const view = document.getElementById('log');
+  const raw = document.getElementById('logRaw').textContent.replace(/\n$/, '').split('\n');
+  const esc = (t) => t.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const LV = { DEBUG: 'debug', DBG: 'debug', INFO: 'info', INF: 'info', WARNING: 'warning', WARN: 'warning', WRN: 'warning',
+               ERROR: 'error', ERR: 'error', CRITICAL: 'critical', FATAL: 'critical', PANIC: 'critical' };
+  const STATES = 'Wanted|Searching|Downloading|Done|Waiting|Failed';
+  const app = /^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:,\d+)?) (\w+) ([\w.]+): (.*)$/;
+  const eng = /^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) \| (\w+)\s*\| (?:(\[[\w-]+\]) )?(.*)$/;
+  const uvi = /^(\w+):(\s+)(.*)$/;
+
+  function hiMsg(m) {
+    let h = esc(m);
+    h = h.replace(/\[(item|items) ([^\]]+)\]/g, '<span class="lg-item">[$1 $2]</span>')
+         .replace(/\[(download|indexer) ([^\]]+)\]/g, '<span class="lg-ctx">[$1 $2]</span>')
+         .replace(new RegExp(`\\b(${STATES}) -&gt; (${STATES})\\b`, 'g'), '<span class="lg-st $1">$1</span> → <span class="lg-st $2">$2</span>')
+         .replace(/(?<![\w.])(\d+(?:\.\d+)?(?:ms|s))(?![\w])/g, '<span class="lg-dur">$1</span>')
+         .replace(/(?<=\s|^)([a-z_]+)=/g, '<span class="lg-key">$1</span>=');
+    return h;
+  }
+  function render(lines) {
+    let level = 'info';
+    view.innerHTML = lines.map((line) => {
+      let m;
+      if ((m = line.match(app))) {
+        level = LV[m[2]] || 'info';
+        return `<div class="lg ${level}"><span class="lg-ts">${m[1]}</span> <span class="lg-lv">${m[2]}</span> <span class="lg-src">${esc(m[3])}</span> <span class="lg-msg">${hiMsg(m[4])}</span></div>`;
+      }
+      if ((m = line.match(eng))) {
+        level = LV[m[2]] || 'info';
+        return `<div class="lg ${level}"><span class="lg-ts">${m[1]}</span> <span class="lg-lv">${m[2]}</span> ${m[3] ? `<span class="lg-src">${esc(m[3])}</span> ` : ''}<span class="lg-msg">${hiMsg(m[4])}</span></div>`;
+      }
+      if ((m = line.match(uvi)) && LV[m[1]]) {
+        level = LV[m[1]];
+        return `<div class="lg ${level}"><span class="lg-lv">${m[1]}</span>${m[2]}<span class="lg-msg">${hiMsg(m[3])}</span></div>`;
+      }
+      // continuation (tracebacks etc.) keeps the previous line's level
+      return `<div class="lg ${level} cont"><span class="lg-msg">${esc(line) || '&nbsp;'}</span></div>`;
+    }).join('');
+    view.scrollTop = view.scrollHeight;
+  }
+  render(raw);
   document.getElementById('logFilter').addEventListener('input', (e) => {
     const q = e.target.value.toLowerCase();
-    l.textContent = q ? all.split('\n').filter(x => x.toLowerCase().includes(q)).join('\n') : all;
-    l.scrollTop = l.scrollHeight;
+    render(q ? raw.filter(x => x.toLowerCase().includes(q)) : raw);
   });
+})();
 </script>
 {% endblock %}
