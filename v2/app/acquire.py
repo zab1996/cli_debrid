@@ -93,6 +93,8 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
     for r in results[:CANDIDATES]:
         try:
             engine_id = await _submit(r)
+        except engine.EngineDown:
+            raise  # not the release's fault; caller puts the items back
         except Exception as e:
             log.info("%s: %s rejected: %s", job.label, r.title, e)
             for it in job.items:
@@ -134,12 +136,22 @@ async def search_wanted(db: DB) -> None:
     items = db.items_in(State.WANTED, limit=SEARCH_BATCH)
     if not items:
         return
+    try:
+        await engine.status()
+    except engine.EngineError:
+        return  # nothing could be handed over; don't burn searches
     for it in items:
         db.set_state(it.id, State.SEARCHING)
     items = [db.get_item(i.id) for i in items]
     for job in search.plan(db, items):
         try:
             await run_job(db, job)
+        except engine.EngineDown:
+            log.warning("engine went away during %s; will retry", job.label)
+            for it in job.items:
+                if db.get_item(it.id).state is State.SEARCHING:
+                    db.set_state(it.id, State.WANTED)
+            return
         except Exception:
             log.exception("search failed for %s", job.label)
             for it in job.items:

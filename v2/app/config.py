@@ -69,6 +69,12 @@ class QualityConfig(BaseModel):
     never_contain: list[str] = Field(default_factory=list)
 
 
+def configured(cfg: "Config") -> bool:
+    """Enough set up to do anything: metadata + a way to download + an indexer."""
+    return bool(cfg.tmdb_api_key and ((cfg.debrid.provider and cfg.debrid.api_key) or cfg.usenet)
+                and cfg.indexers)
+
+
 class Config(BaseModel):
     plex: PlexConfig = Field(default_factory=PlexConfig)
     debrid: DebridConfig = Field(default_factory=DebridConfig)
@@ -83,6 +89,7 @@ class Config(BaseModel):
     indexers: list[IndexerConfig] = Field(default_factory=list)
     quality: QualityConfig = Field(default_factory=QualityConfig)
     upgrade_days: int = 7
+    web_password: str = ""  # empty = no login (keep the app on a private network)
     advanced: dict[str, Any] = Field(default_factory=dict)
 
     def adv(self, key: str, default: Any) -> Any:

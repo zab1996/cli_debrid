@@ -1,32 +1,70 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import time
+from collections import deque
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
-from .. import __version__
+from .. import __version__, catalog, checks, config, manage
+from ..config import Config
+from ..downloads import engine
+from ..metadata import tmdb
 from ..models import State
 
 HERE = Path(__file__).parent
 STATIC_DIR = HERE / "static"
 templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.globals["version"] = __version__
-templates.env.filters["ago"] = lambda ts: _ago(ts)
 
 router = APIRouter()
+
+INDEXER_TYPES = ["torrentio", "zilean", "jackett", "prowlarr", "newznab"]
+SOURCE_TYPES = {
+    "plex_watchlist": "My Plex watchlist",
+    "trakt_list": "Trakt list (user/list)",
+    "trakt_watchlist": "Trakt watchlist (username)",
+    "mdblist": "MDBList list (URL)",
+}
+DEBRIDS = {"": "None", "realdebrid": "Real-Debrid", "torbox": "TorBox", "alldebrid": "AllDebrid",
+           "premiumize": "Premiumize", "debridlink": "Debrid-Link"}
+PRESETS = {"1080p": "1080p (720p fallback)", "4k": "4K only", "4k_1080p": "4K, else 1080p"}
 
 
 def _ago(ts: float | None) -> str:
     if not ts:
         return "never"
     s = int(time.time() - ts)
+    if s < 0:
+        s = -s
+        for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
+            if s >= n:
+                return f"in {s // n}{unit}"
+        return "soon"
     for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
         if s >= n:
             return f"{s // n}{unit} ago"
     return f"{s}s ago"
+
+
+templates.env.filters["ago"] = _ago
+
+
+def render(request: Request, name: str, **ctx):
+    ctx.setdefault("nav", name.split(".")[0])
+    return templates.TemplateResponse(request, name, ctx)
+
+
+def back(url: str) -> RedirectResponse:
+    return RedirectResponse(url, status_code=303)
+
+
+# ------------------------------------------------------------------ home
 
 
 @router.get("/health")
@@ -39,11 +77,342 @@ def health(request: Request) -> dict:
     }
 
 
+async def engine_summary(request: Request) -> dict:
+    proc = request.app.state.engine
+    out = {"running": proc.running, "available": proc.available, "restarts": proc.restarts}
+    if proc.running:
+        try:
+            out.update(await asyncio.wait_for(engine.status(), 3))
+            out["reachable"] = True
+        except Exception:
+            out["reachable"] = False
+    return out
+
+
 @router.get("/", response_class=HTMLResponse)
-def home(request: Request):
+async def home(request: Request):
+    if not config.configured(config.get()):
+        return back("/setup")
     db = request.app.state.db
-    return templates.TemplateResponse(request, "home.html", {
-        "counts": db.state_counts(),
-        "states": [s.value for s in State],
-        "events": db.recent_events(30),
-    })
+    problems = [f"{s.name}: {s.last_error}" for s in request.app.state.worker.steps if s.last_error]
+    return render(request, "home.html", counts=db.state_counts(), states=[s.value for s in State],
+                  events=db.recent_events(40), engine=await engine_summary(request),
+                  problems=problems)
+
+
+# ------------------------------------------------------------------ library
+
+
+@router.get("/library", response_class=HTMLResponse)
+def library(request: Request, state: str = "", q: str = ""):
+    db = request.app.state.db
+    where, params = ["kind='movie'"], []
+    if state:
+        where.append("state=?")
+        params.append(state)
+    if q:
+        where.append("title LIKE ?")
+        params.append(f"%{q}%")
+    movies = db.query(f"SELECT id, title, year, state, release_name, next_attempt_at FROM items"
+                      f" WHERE {' AND '.join(where)} ORDER BY title LIMIT 500", tuple(params))
+    show_where, show_params = "", []
+    if q:
+        show_where, show_params = "WHERE s.title LIKE ?", [f"%{q}%"]
+    shows = db.query(
+        "SELECT s.tmdb_id, s.title, s.year, COUNT(i.id) total,"
+        " SUM(i.state='Done') done, SUM(i.state IN ('Wanted','Searching','Downloading')) active,"
+        " SUM(i.state='Failed') failed FROM shows s LEFT JOIN items i"
+        " ON i.kind='episode' AND i.tmdb_id=s.tmdb_id " + show_where +
+        " GROUP BY s.tmdb_id ORDER BY s.title LIMIT 500", tuple(show_params))
+    if state:
+        shows = [s for s in shows if db.query(
+            "SELECT 1 FROM items WHERE kind='episode' AND tmdb_id=? AND state=? LIMIT 1",
+            (s["tmdb_id"], state))]
+    return render(request, "library.html", movies=movies, shows=shows, state=state, q=q,
+                  states=[s.value for s in State])
+
+
+@router.get("/show/{tmdb_id}", response_class=HTMLResponse)
+def show(request: Request, tmdb_id: int):
+    db = request.app.state.db
+    rows = db.query("SELECT * FROM shows WHERE tmdb_id=?", (tmdb_id,))
+    if not rows:
+        return back("/library")
+    eps = db.query("SELECT id, season, episode, state, release_name, release_date, next_attempt_at"
+                   " FROM items WHERE kind='episode' AND tmdb_id=? ORDER BY season, episode",
+                   (tmdb_id,))
+    seasons: dict[int, list] = {}
+    for e in eps:
+        seasons.setdefault(e["season"], []).append(e)
+    return render(request, "show.html", show=rows[0], seasons=seasons, nav="library")
+
+
+@router.get("/item/{item_id}", response_class=HTMLResponse)
+def item(request: Request, item_id: int):
+    db = request.app.state.db
+    it = db.get_item(item_id)
+    if not it:
+        return back("/library")
+    tried = db.query("SELECT name, score, outcome, at FROM releases_tried WHERE item_id=?"
+                     " ORDER BY at DESC", (item_id,))
+    events = db.query("SELECT at, message FROM events WHERE item_id=? ORDER BY id DESC LIMIT 30",
+                      (item_id,))
+    return render(request, "item.html", it=it, tried=tried, events=events, nav="library")
+
+
+@router.post("/item/{item_id}/{action}")
+async def item_action(request: Request, item_id: int, action: str):
+    db = request.app.state.db
+    it = db.get_item(item_id)
+    if action == "retry":
+        manage.retry(db, item_id)
+    elif action == "replace":
+        manage.replace(db, item_id)
+    elif action == "delete":
+        await manage.delete_items(db, [item_id])
+        if it and it.kind == "episode":
+            return back(f"/show/{it.tmdb_id}")
+        return back("/library")
+    return back(f"/item/{item_id}")
+
+
+@router.post("/show/{tmdb_id}/delete")
+async def show_delete(request: Request, tmdb_id: int):
+    await manage.delete_show(request.app.state.db, tmdb_id)
+    return back("/library")
+
+
+@router.post("/show/{tmdb_id}/retry")
+async def show_retry(request: Request, tmdb_id: int):
+    db = request.app.state.db
+    for r in db.query("SELECT id FROM items WHERE kind='episode' AND tmdb_id=? AND state IN"
+                      " ('Failed','Waiting')", (tmdb_id,)):
+        manage.retry(db, r["id"])
+    return back(f"/show/{tmdb_id}")
+
+
+# ------------------------------------------------------------------ add
+
+
+@router.get("/add", response_class=HTMLResponse)
+async def add_page(request: Request, q: str = ""):
+    results, error = [], ""
+    if q:
+        try:
+            results = await tmdb.search(q)
+        except Exception as e:
+            error = str(e)
+    db = request.app.state.db
+    have_movies = {r["tmdb_id"] for r in db.query("SELECT tmdb_id FROM items WHERE kind='movie'")}
+    have_shows = {r["tmdb_id"] for r in db.query("SELECT tmdb_id FROM shows")}
+    for r in results:
+        r["have"] = r["tmdb_id"] in (have_movies if r["kind"] == "movie" else have_shows)
+    return render(request, "add.html", q=q, results=results, error=error)
+
+
+@router.post("/add")
+async def add_submit(request: Request, kind: str = Form(...), tmdb_id: int = Form(...),
+                     q: str = Form(""), seasons: str = Form("")):
+    db = request.app.state.db
+    if kind == "movie":
+        await catalog.add_movie(db, tmdb_id)
+    else:
+        wanted = [int(s) for s in seasons.replace(" ", "").split(",") if s.isdigit()] or None
+        await catalog.add_show(db, tmdb_id, seasons=wanted)
+    return back(f"/add?q={q}" if q else "/library")
+
+
+# ------------------------------------------------------------------ settings
+
+
+def _rows(form, prefix: str, fields: list[str]) -> list[dict]:
+    """Collect repeated form rows named prefix-<n>-<field>; blank rows are dropped."""
+    rows: dict[int, dict] = {}
+    for key, value in form.multi_items():
+        parts = key.split("-", 2)
+        if len(parts) != 3 or parts[0] != prefix or not parts[1].isdigit():
+            continue
+        _, idx, field = parts
+        if field in fields:
+            rows.setdefault(int(idx), {})[field] = value
+    return [rows[i] for i in sorted(rows)]
+
+
+def config_from_form(form, base: Config) -> Config:
+    d = base.model_dump()
+    d["plex"] = {"url": form.get("plex.url", "").strip(), "token": form.get("plex.token", "").strip()}
+    d["debrid"] = {"provider": form.get("debrid.provider", ""),
+                   "api_key": form.get("debrid.api_key", "").strip()}
+    for k in ("tmdb_api_key", "tvdb_api_key", "trakt_client_id", "mdblist_api_key", "web_password"):
+        if k in form:
+            d[k] = form.get(k, "").strip()
+    d["mount"] = {"path": form.get("mount.path", d["mount"]["path"]).strip(),
+                  "cache_size_gb": int(form.get("mount.cache_size_gb") or d["mount"]["cache_size_gb"])}
+    d["library"] = {"mode": form.get("library.mode", d["library"]["mode"]),
+                    "movies_path": form.get("library.movies_path", d["library"]["movies_path"]).strip(),
+                    "shows_path": form.get("library.shows_path", d["library"]["shows_path"]).strip()}
+    q = d["quality"]
+    d["quality"] = {
+        "preset": form.get("quality.preset", q["preset"]),
+        "min_size_gb": float(form.get("quality.min_size_gb") or 0),
+        "max_size_gb": float(form.get("quality.max_size_gb") or 0),
+        "language": form.get("quality.language", q["language"]).strip(),
+        "must_contain": [w.strip() for w in form.get("quality.must_contain", "").split(",") if w.strip()],
+        "never_contain": [w.strip() for w in form.get("quality.never_contain", "").split(",") if w.strip()],
+    }
+    if "upgrade_days" in form:
+        d["upgrade_days"] = int(form.get("upgrade_days") or 0)
+    if "usenet-present" in form:
+        d["usenet"] = [
+            {"host": r["host"].strip(), "port": int(r.get("port") or 563), "ssl": r.get("ssl") == "on",
+             "username": r.get("username", "").strip(), "password": r.get("password", ""),
+             "connections": int(r.get("connections") or 10)}
+            for r in _rows(form, "usenet", ["host", "port", "ssl", "username", "password", "connections"])
+            if r.get("host", "").strip()]
+    if "indexers-present" in form:
+        d["indexers"] = [
+            {"type": r["type"], "url": r.get("url", "").strip(), "api_key": r.get("api_key", "").strip(),
+             "enabled": r.get("enabled") == "on"}
+            for r in _rows(form, "indexers", ["type", "url", "api_key", "enabled"])
+            if r.get("type") and (r.get("url", "").strip() or r["type"] == "torrentio")]
+    if "sources-present" in form:
+        d["sources"] = [
+            {"type": r["type"], "value": r.get("value", "").strip(), "enabled": r.get("enabled") == "on"}
+            for r in _rows(form, "sources", ["type", "value", "enabled"])
+            if r.get("type") and (r.get("value", "").strip() or r["type"] == "plex_watchlist")]
+    return Config.model_validate(d)
+
+
+ENGINE_KEYS = ("debrid", "usenet", "mount")
+
+
+async def _apply(request: Request, new: Config) -> None:
+    old = config.get()
+    config.save(new)
+    if any(getattr(old, k) != getattr(new, k) for k in ENGINE_KEYS):
+        await request.app.state.engine.restart()
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, saved: int = 0):
+    return render(request, "settings.html", c=config.get(), saved=saved, error="",
+                  debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES,
+                  source_types=SOURCE_TYPES)
+
+
+@router.post("/settings", response_class=HTMLResponse)
+async def settings_save(request: Request):
+    form = await request.form()
+    try:
+        new = config_from_form(form, config.get())
+    except (ValidationError, ValueError) as e:
+        return render(request, "settings.html", c=config.get(), saved=0, error=str(e),
+                      debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES,
+                      source_types=SOURCE_TYPES)
+    await _apply(request, new)
+    return back("/settings?saved=1")
+
+
+@router.post("/api/test")
+async def test_connection(request: Request):
+    """Test one thing from the current form (used by the Test buttons)."""
+    form = await request.form()
+    what = form.get("what", "")
+    try:
+        cfg = config_from_form(form, config.get())
+    except (ValidationError, ValueError) as e:
+        return JSONResponse({"ok": False, "message": str(e)})
+    from ..library import plex
+    if what == "tmdb":
+        msg = await checks.tmdb(cfg.tmdb_api_key)
+    elif what == "tvdb":
+        msg = await checks.tvdb(cfg.tvdb_api_key)
+    elif what == "debrid":
+        msg = await checks.debrid(cfg.debrid.provider, cfg.debrid.api_key)
+    elif what == "plex":
+        msg = await plex.test_connection(cfg.plex.url, cfg.plex.token) if cfg.plex.url else "missing URL"
+    elif what.startswith("usenet-"):
+        i = int(what.split("-")[1])
+        msg = await checks.usenet(cfg.usenet[i]) if i < len(cfg.usenet) else "fill in the host first"
+    elif what.startswith("indexers-"):
+        i = int(what.split("-")[1])
+        msg = await checks.indexer(cfg.indexers[i]) if i < len(cfg.indexers) else "fill in the row first"
+    else:
+        msg = "unknown test"
+    return JSONResponse({"ok": not msg, "message": msg or "Connected"})
+
+
+# ------------------------------------------------------------------ setup wizard
+
+SETUP_STEPS = ["metadata", "downloads", "indexers", "library"]
+
+
+@router.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request, step: str = "metadata"):
+    if step not in SETUP_STEPS:
+        step = "metadata"
+    return render(request, "setup.html", c=config.get(), step=step, steps=SETUP_STEPS,
+                  debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES, error="",
+                  source_types=SOURCE_TYPES, nav="setup")
+
+
+@router.post("/setup", response_class=HTMLResponse)
+async def setup_save(request: Request):
+    form = await request.form()
+    step = form.get("step", "metadata")
+    try:
+        new = config_from_form(form, config.get())
+    except (ValidationError, ValueError) as e:
+        return render(request, "setup.html", c=config.get(), step=step, steps=SETUP_STEPS,
+                      debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES, error=str(e),
+                      source_types=SOURCE_TYPES, nav="setup")
+    error = ""
+    if step == "metadata":
+        error = await checks.tmdb(new.tmdb_api_key) or (
+            "TVDB: " + m if (m := await checks.tvdb(new.tvdb_api_key)) else "")
+        if error.startswith("missing"):
+            error = "A TMDB API key is required"
+    elif step == "downloads":
+        if not ((new.debrid.provider and new.debrid.api_key) or new.usenet):
+            error = "Add a debrid service or a usenet provider (or both)"
+        else:
+            error = await checks.debrid(new.debrid.provider, new.debrid.api_key)
+            for p in new.usenet:
+                error = error or (f"{p.host}: " + m if (m := await checks.usenet(p)) else "")
+    elif step == "indexers" and not new.indexers:
+        error = "Add at least one indexer"
+    await _apply(request, new)  # save even with a warning; the user may fix later
+    if error:
+        return render(request, "setup.html", c=config.get(), step=step, steps=SETUP_STEPS,
+                      debrids=DEBRIDS, presets=PRESETS, indexer_types=INDEXER_TYPES, error=error,
+                      source_types=SOURCE_TYPES, nav="setup")
+    i = SETUP_STEPS.index(step)
+    if i + 1 < len(SETUP_STEPS):
+        return back(f"/setup?step={SETUP_STEPS[i + 1]}")
+    return back("/")
+
+
+# ------------------------------------------------------------------ logs
+
+
+@router.get("/logs", response_class=HTMLResponse)
+def logs(request: Request, lines: int = 300):
+    path = config.DATA_DIR / "logs" / "clid2.log"
+    text = ""
+    if path.exists():
+        with path.open(errors="replace") as f:
+            text = "".join(deque(f, maxlen=min(max(lines, 50), 5000)))
+    return render(request, "logs.html", text=text, lines=lines)
+
+
+@router.get("/api/status")
+async def api_status(request: Request):
+    db = request.app.state.db
+    return {"counts": db.state_counts(), "engine": await engine_summary(request)}
+
+
+def _json(obj) -> str:
+    return json.dumps(obj)
+
+
+templates.env.filters["tojson_attr"] = _json

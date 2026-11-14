@@ -2,17 +2,20 @@
 
 # ---- engine build -------------------------------------------------------
 FROM golang:1.26-bookworm AS engine
+# cgofuse needs the libfuse headers at build time (it dlopens libfuse.so.2 at runtime).
+RUN apt-get update && apt-get install -y --no-install-recommends libfuse-dev \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY engine/go.mod engine/go.sum ./
 RUN go mod download
 COPY engine/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/clid2-engine .
+RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/clid2-engine .
 
 # ---- runtime ------------------------------------------------------------
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends fuse3 ffmpeg ca-certificates tzdata \
+ && apt-get install -y --no-install-recommends fuse libfuse2 ffmpeg ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i 's/^#user_allow_other/user_allow_other/' /etc/fuse.conf
 

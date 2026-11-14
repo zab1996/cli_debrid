@@ -1,0 +1,148 @@
+{# Shared form sections for the settings page and the setup wizard. #}
+
+{% macro test_button(what) -%}
+<button type="button" class="btn small" data-test="{{ what }}">Test</button><span class="test-result" data-for="{{ what }}"></span>
+{%- endmacro %}
+
+{% macro metadata(c) %}
+<fieldset>
+  <legend>Metadata</legend>
+  <label>TMDB API key <span class="req">required</span>
+    <input name="tmdb_api_key" value="{{ c.tmdb_api_key }}" autocomplete="off">
+  </label>
+  <p class="hint">Free at themoviedb.org → Settings → API. Either the short key or the long read token works.</p>
+  {{ test_button("tmdb") }}
+  <label>TVDB API key <span class="opt">optional, recommended for shows and anime</span>
+    <input name="tvdb_api_key" value="{{ c.tvdb_api_key }}" autocomplete="off">
+  </label>
+  {{ test_button("tvdb") }}
+</fieldset>
+{% endmacro %}
+
+{% macro downloads(c, debrids) %}
+<fieldset>
+  <legend>Debrid service</legend>
+  <div class="row">
+    <label>Service
+      <select name="debrid.provider">
+        {% for k, v in debrids.items() %}<option value="{{ k }}" {{ 'selected' if c.debrid.provider == k }}>{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="grow">API key <input name="debrid.api_key" value="{{ c.debrid.api_key }}" autocomplete="off"></label>
+  </div>
+  {{ test_button("debrid") }}
+</fieldset>
+<fieldset>
+  <legend>Usenet providers</legend>
+  <input type="hidden" name="usenet-present" value="1">
+  <p class="hint">Leave empty if you only use a debrid service. Clear the host to remove a provider.</p>
+  {% for p in c.usenet + [none] %}{% set i = loop.index0 %}
+  <div class="row card">
+    <label class="grow">Host <input name="usenet-{{ i }}-host" value="{{ p.host if p else '' }}" placeholder="news.example.com"></label>
+    <label class="narrow">Port <input name="usenet-{{ i }}-port" type="number" value="{{ p.port if p else 563 }}"></label>
+    <label class="check"><input type="checkbox" name="usenet-{{ i }}-ssl" {{ 'checked' if (not p or p.ssl) }}> SSL</label>
+    <label>Username <input name="usenet-{{ i }}-username" value="{{ p.username if p else '' }}" autocomplete="off"></label>
+    <label>Password <input name="usenet-{{ i }}-password" type="password" value="{{ p.password if p else '' }}" autocomplete="new-password"></label>
+    <label class="narrow">Connections <input name="usenet-{{ i }}-connections" type="number" value="{{ p.connections if p else 10 }}"></label>
+    {{ test_button("usenet-" ~ i) }}
+  </div>
+  {% endfor %}
+</fieldset>
+<fieldset>
+  <legend>Mount</legend>
+  <div class="row">
+    <label class="grow">Mount path <input name="mount.path" value="{{ c.mount.path }}"></label>
+    <label class="narrow">Cache (GB) <input name="mount.cache_size_gb" type="number" value="{{ c.mount.cache_size_gb }}"></label>
+  </div>
+  <p class="hint">Where your media appears. Plex must be able to see this path.</p>
+</fieldset>
+{% endmacro %}
+
+{% macro indexers(c, indexer_types) %}
+<fieldset>
+  <legend>Indexers</legend>
+  <input type="hidden" name="indexers-present" value="1">
+  <p class="hint">Torrentio needs no URL or key. Newznab covers usenet indexers (NZBGeek, NZBFinder…). Clear the URL to remove one.</p>
+  {% for x in c.indexers + [none] %}{% set i = loop.index0 %}
+  <div class="row card">
+    <label>Type
+      <select name="indexers-{{ i }}-type">
+        <option value="">—</option>
+        {% for t in indexer_types %}<option value="{{ t }}" {{ 'selected' if x and x.type == t }}>{{ t }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="grow">URL <input name="indexers-{{ i }}-url" value="{{ x.url if x else '' }}" placeholder="http://prowlarr:9696"></label>
+    <label class="grow">API key <input name="indexers-{{ i }}-api_key" value="{{ x.api_key if x else '' }}" autocomplete="off"></label>
+    <label class="check"><input type="checkbox" name="indexers-{{ i }}-enabled" {{ 'checked' if (not x or x.enabled) }}> On</label>
+    {{ test_button("indexers-" ~ i) }}
+  </div>
+  {% endfor %}
+</fieldset>
+{% endmacro %}
+
+{% macro library(c, presets) %}
+<fieldset>
+  <legend>Library</legend>
+  <div class="row">
+    <label>Mode
+      <select name="library.mode">
+        <option value="symlink" {{ 'selected' if c.library.mode == 'symlink' }}>Symlinks (tidy folders)</option>
+        <option value="plex" {{ 'selected' if c.library.mode == 'plex' }}>Plex reads the mount directly</option>
+      </select>
+    </label>
+    <label class="grow">Movies folder <input name="library.movies_path" value="{{ c.library.movies_path }}"></label>
+    <label class="grow">Shows folder <input name="library.shows_path" value="{{ c.library.shows_path }}"></label>
+  </div>
+</fieldset>
+<fieldset>
+  <legend>Plex <span class="opt">optional</span></legend>
+  <div class="row">
+    <label class="grow">URL <input name="plex.url" value="{{ c.plex.url }}" placeholder="http://plex:32400"></label>
+    <label class="grow">Token <input name="plex.token" value="{{ c.plex.token }}" autocomplete="off"></label>
+  </div>
+  {{ test_button("plex") }}
+  <p class="hint">Used to scan new files in, read your watchlist, and replace files people report with "Report issue".</p>
+</fieldset>
+<fieldset>
+  <legend>Quality</legend>
+  <div class="row">
+    <label>Profile
+      <select name="quality.preset">
+        {% for k, v in presets.items() %}<option value="{{ k }}" {{ 'selected' if c.quality.preset == k }}>{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="narrow">Language <input name="quality.language" value="{{ c.quality.language }}" placeholder="en"></label>
+    <label class="narrow">Min GB <input name="quality.min_size_gb" type="number" step="0.1" value="{{ c.quality.min_size_gb }}"></label>
+    <label class="narrow">Max GB <input name="quality.max_size_gb" type="number" step="0.1" value="{{ c.quality.max_size_gb }}"></label>
+  </div>
+  <p class="hint">Sizes are per episode for shows. 0 = no limit.</p>
+  <div class="row">
+    <label class="grow">Never contains <input name="quality.never_contain" value="{{ c.quality.never_contain | join(', ') }}" placeholder="HDCAM, 3D"></label>
+    <label class="grow">Must contain <input name="quality.must_contain" value="{{ c.quality.must_contain | join(', ') }}"></label>
+  </div>
+</fieldset>
+{% endmacro %}
+
+{% macro sources(c, source_types) %}
+<fieldset>
+  <legend>Lists to follow</legend>
+  <input type="hidden" name="sources-present" value="1">
+  <p class="hint">New titles on these lists are added automatically (checked every 10 minutes).</p>
+  {% for s in c.sources + [none] %}{% set i = loop.index0 %}
+  <div class="row card">
+    <label>Type
+      <select name="sources-{{ i }}-type">
+        <option value="">—</option>
+        {% for k, v in source_types.items() %}<option value="{{ k }}" {{ 'selected' if s and s.type == k }}>{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="grow">List <input name="sources-{{ i }}-value" value="{{ s.value if s else '' }}"></label>
+    <label class="check"><input type="checkbox" name="sources-{{ i }}-enabled" {{ 'checked' if (not s or s.enabled) }}> On</label>
+  </div>
+  {% endfor %}
+  <div class="row">
+    <label class="grow">Trakt client id <span class="opt">for Trakt lists</span><input name="trakt_client_id" value="{{ c.trakt_client_id }}" autocomplete="off"></label>
+    <label class="grow">MDBList API key <span class="opt">optional</span><input name="mdblist_api_key" value="{{ c.mdblist_api_key }}" autocomplete="off"></label>
+  </div>
+</fieldset>
+{% endmacro %}

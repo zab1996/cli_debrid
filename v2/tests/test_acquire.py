@@ -27,6 +27,13 @@ class FakeEngine:
         self.deleted: list[str] = []
         self.n = 0
 
+    down = False
+
+    async def status(self):
+        if self.down:
+            raise engine.EngineDown("down")
+        return {"ready": True}
+
     async def cached(self, hashes):
         return {h: h.startswith("c") for h in hashes}
 
@@ -62,7 +69,7 @@ def env(tmp_path, monkeypatch, db):
     cfg.library.shows_path = str(tmp_path / "shows")
     monkeypatch.setattr(config, "_current", cfg)
     fe = FakeEngine(tmp_path)
-    for name in ("cached", "add_magnet", "entry", "delete"):
+    for name in ("cached", "add_magnet", "entry", "delete", "status"):
         monkeypatch.setattr(engine, name, getattr(fe, name))
     results: list[Release] = []
 
@@ -177,3 +184,25 @@ def test_upgrade_needs_clear_margin(env, db):
     run(acquire.check_downloads(db))
     it = db.get_item(mid)
     assert it.state is State.DONE and it.engine_id == H("low") and os.path.islink(it.file_path)
+
+
+def test_engine_down_does_not_burn_releases(env, db):
+    fe, results, tmp = env
+    results += [T("The.Matrix.1999.1080p.WEB-DL", "x1", 4)]
+    mid = db.add_item(kind="movie", tmdb_id=603, title="The Matrix", year=1999)
+    fe.down = True
+    run(acquire.search_wanted(db))
+    assert db.get_item(mid).state is State.WANTED
+    assert db.query("SELECT COUNT(*) n FROM releases_tried")[0]["n"] == 0
+
+    async def boom(magnet):
+        raise engine.EngineDown("gone mid-search")
+    fe.down = False
+    orig = engine.add_magnet
+    engine.add_magnet = boom
+    try:
+        run(acquire.search_wanted(db))
+    finally:
+        engine.add_magnet = orig
+    assert db.get_item(mid).state is State.WANTED
+    assert db.query("SELECT COUNT(*) n FROM releases_tried")[0]["n"] == 0

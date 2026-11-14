@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head">
+  <h1>Logs</h1>
+  <form method="get" class="row">
+    <select name="lines" onchange="this.form.submit()">
+      {% for n in (300, 1000, 5000) %}<option value="{{ n }}" {{ 'selected' if n == lines }}>Last {{ n }} lines</option>{% endfor %}
+    </select>
+  </form>
+</div>
+<pre class="log" id="log">{{ text }}</pre>
+<script>const l = document.getElementById('log'); l.scrollTop = l.scrollHeight;</script>
+{% endblock %}

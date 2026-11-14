@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "_forms.html" as f %}
+{% block content %}
+<h1>Settings</h1>
+{% if saved %}<div class="notice ok">Saved.</div>{% endif %}
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+<form method="post" class="settings">
+  {{ f.metadata(c) }}
+  {{ f.downloads(c, debrids) }}
+  {{ f.indexers(c, indexer_types) }}
+  {{ f.library(c, presets) }}
+  {{ f.sources(c, source_types) }}
+  <fieldset>
+    <legend>Other</legend>
+    <div class="row">
+      <label class="narrow">Upgrade window (days) <input name="upgrade_days" type="number" value="{{ c.upgrade_days }}"></label>
+      <label class="grow">Web password <span class="opt">empty = no login</span>
+        <input name="web_password" type="password" value="{{ c.web_password }}" autocomplete="new-password"></label>
+    </div>
+    <p class="hint">For this many days after something arrives, it's checked daily for a clearly better release.</p>
+  </fieldset>
+  <div class="sticky-save"><button class="btn primary">Save</button></div>
+</form>
+{% endblock %}

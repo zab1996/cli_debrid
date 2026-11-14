@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head">
+  <h1>{{ show.title }} <span class="muted">{{ show.year or '' }}</span></h1>
+  <div class="actions">
+    <form method="post" action="/show/{{ show.tmdb_id }}/retry"><button class="btn">Retry failed</button></form>
+    <form method="post" action="/show/{{ show.tmdb_id }}/delete" onsubmit="return confirm('Delete {{ show.title }} and all its episodes from the library?')">
+      <button class="btn danger">Delete show</button></form>
+  </div>
+</div>
+<p class="muted small">{{ show.status or '' }}{% if show.seasons %} · seasons {{ show.seasons }}{% endif %}</p>
+
+{% for season, eps in seasons.items() %}
+<details {{ 'open' if loop.last or eps | selectattr('state', 'ne', 'Done') | list }}>
+  <summary>Season {{ season }} <span class="muted">{{ eps | selectattr('state', 'eq', 'Done') | list | length }}/{{ eps | length }}</span></summary>
+  <table class="list">
+    {% for e in eps %}
+    <tr>
+      <td><a href="/item/{{ e.id }}">E{{ '%02d' % e.episode }}</a></td>
+      <td><span class="tag {{ e.state }}">{{ e.state }}</span>
+        {% if e.state == 'Waiting' and e.next_attempt_at %}<span class="muted small">{{ e.next_attempt_at | ago }}</span>{% endif %}</td>
+      <td class="hide-sm small muted">{{ e.release_name or e.release_date or '' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</details>
+{% endfor %}
+{% endblock %}

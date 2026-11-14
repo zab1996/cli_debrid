@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="filters" method="get">
+  <input name="q" value="{{ q }}" placeholder="Search movies and shows" autofocus>
+  <button class="btn">Search</button>
+</form>
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+<div class="results">
+  {% for r in results %}
+  <div class="result">
+    {% if r.poster %}<img src="{{ r.poster }}" alt="" loading="lazy">{% else %}<div class="noposter"></div>{% endif %}
+    <div class="body">
+      <div class="title">{{ r.title }} <span class="muted">{{ r.year or '' }} · {{ r.kind }}</span></div>
+      <p class="small muted">{{ r.overview[:220] }}{{ '…' if r.overview | length > 220 }}</p>
+      {% if r.have %}
+        <span class="tag Done">In library</span>
+      {% else %}
+      <form method="post" action="/add" class="row">
+        <input type="hidden" name="kind" value="{{ r.kind }}">
+        <input type="hidden" name="tmdb_id" value="{{ r.tmdb_id }}">
+        <input type="hidden" name="q" value="{{ q }}">
+        {% if r.kind == 'show' %}<input name="seasons" placeholder="All seasons (or e.g. 1,2)" class="narrow-input">{% endif %}
+        <button class="btn">Add</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% if q and not results and not error %}<p class="muted">No results.</p>{% endif %}
+{% endblock %}

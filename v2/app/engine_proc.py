@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -21,6 +22,7 @@ engine_log = logging.getLogger("clid2.engine.out")
 
 ENGINE_BIN = os.environ.get("CLID2_ENGINE_BIN", "/app/bin/clid2-engine")
 BACKOFF = [2, 5, 15, 30, 60]
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 HEALTHY_AFTER = 120  # seconds of uptime that reset the restart backoff
 
 
@@ -64,7 +66,7 @@ class EngineProcess:
                 self.proc = await asyncio.create_subprocess_exec(
                     self.binary, "--config", str(self.config_dir()),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True,
+                    start_new_session=True, limit=1024 * 1024,
                 )
             except OSError as e:
                 log.error("could not start engine: %s", e)
@@ -89,10 +91,15 @@ class EngineProcess:
     async def _pump(self, proc: asyncio.subprocess.Process) -> None:
         assert proc.stdout is not None
         while True:
-            line = await proc.stdout.readline()
+            try:
+                line = await proc.stdout.readline()
+            except ValueError:  # a single line over the limit; skip it
+                continue
             if not line:
                 return
-            engine_log.info(line.decode(errors="replace").rstrip())
+            text = _ANSI.sub("", line.decode(errors="replace")).rstrip()
+            if text:
+                engine_log.info(text)
 
     async def _sleep(self, seconds: float) -> None:
         try:

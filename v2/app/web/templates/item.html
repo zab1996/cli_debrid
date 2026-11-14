@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head">
+  <h1>{{ it.label }}</h1>
+  <div class="actions">
+    {% if it.state.value in ('Failed', 'Waiting') %}
+    <form method="post" action="/item/{{ it.id }}/retry"><button class="btn">Search now</button></form>
+    {% endif %}
+    {% if it.state.value == 'Done' %}
+    <form method="post" action="/item/{{ it.id }}/replace"><button class="btn">Replace file</button></form>
+    {% endif %}
+    <form method="post" action="/item/{{ it.id }}/delete" onsubmit="return confirm('Delete from the library?')">
+      <button class="btn danger">Delete</button></form>
+  </div>
+</div>
+{% if it.kind == 'episode' %}<p><a href="/show/{{ it.tmdb_id }}">← {{ it.title }}</a></p>{% endif %}
+
+<dl class="facts">
+  <dt>State</dt><dd><span class="tag {{ it.state.value }}">{{ it.state.value }}</span>
+    {% if it.mode %}<span class="muted">({{ it.mode }})</span>{% endif %}
+    {% if it.next_attempt_at %}<span class="muted">next try {{ it.next_attempt_at | ago }}</span>{% endif %}</dd>
+  <dt>Released</dt><dd>{{ it.release_date or 'unknown' }}</dd>
+  {% if it.release_name %}<dt>Release</dt><dd class="mono">{{ it.release_name }}</dd>{% endif %}
+  {% if it.file_path %}<dt>File</dt><dd class="mono">{{ it.file_path }}</dd>{% endif %}
+  {% if it.attempts %}<dt>Empty searches</dt><dd>{{ it.attempts }}</dd>{% endif %}
+  <dt>Added from</dt><dd>{{ it.source or 'manual' }}</dd>
+  {% if it.imdb_id %}<dt>IDs</dt><dd class="mono">{{ it.imdb_id }} · tmdb {{ it.tmdb_id }}</dd>{% endif %}
+</dl>
+
+<h2>Releases tried</h2>
+{% if tried %}
+<table class="list">
+  {% for r in tried %}
+  <tr><td class="mono small">{{ r.name }}</td><td><span class="tag {{ r.outcome }}">{{ r.outcome }}</span></td>
+    <td class="small muted hide-sm">{{ r.at | ago }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">None yet.</p>{% endif %}
+
+{% if events %}
+<h2>History</h2>
+<ul class="events">{% for e in events %}<li><span class="when">{{ e.at | ago }}</span>{{ e.message }}</li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

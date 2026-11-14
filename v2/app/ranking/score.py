@@ -7,9 +7,14 @@ from .filter import _episodes_in, check
 
 RES_SCORE = {"2160p": 40, "1440p": 32, "1080p": 30, "720p": 15, "576p": 5, "480p": 5}
 SOURCE_SCORE = {
-    "BluRay REMUX": 12, "REMUX": 12, "BluRay": 10, "WEB-DL": 9, "WEB": 8,
+    "BluRay REMUX": 10, "REMUX": 10, "BluRay": 10, "WEB-DL": 9, "WEB": 8,
     "WEBRip": 6, "HDTV": 3, "DVD": 1, "DVDRip": 1,
 }
+
+
+# Per-movie size where quality stops improving noticeably for streaming.
+# Shows use a quarter of this per episode.
+SWEET_SPOT_GB = {"2160p": 40.0, "1080p": 15.0, "720p": 6.0}
 
 
 def score(r: Release, q: Query, prof: QualityConfig) -> float:
@@ -28,13 +33,16 @@ def score(r: Release, q: Query, prof: QualityConfig) -> float:
         s += 1
     s += 10 * (p.get("_similarity", 1.0) - 0.8)
 
-    # Size: prefer reasonably sized files, gently, up to a cap per resolution.
+    # Size: bigger is better up to a sweet spot for the resolution, then
+    # increasingly worse (huge remuxes stream poorly and fill caches).
     n = _episodes_in(r, q)
     per = r.size_gb / n if r.size_gb and n else 0.0
-    cap = 40.0 if p.get("resolution") == "2160p" else 12.0
+    sweet = SWEET_SPOT_GB.get(p.get("resolution") or "", 8.0)
     if q.kind != "movie":
-        cap /= 4
-    s += 6 * min(per, cap) / cap
+        sweet /= 4
+    s += 6 * min(per, sweet) / sweet
+    if per > sweet:
+        s -= min(10.0, 10.0 * (per / sweet - 1))
 
     # A whole-season pack when we asked for a season is worth a lot.
     if q.kind == "season" and not p.get("episodes") and not p.get("_unscoped"):

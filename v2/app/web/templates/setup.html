@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% import "_forms.html" as f %}
+{% block title %}Set up cli_debrid{% endblock %}
+{% block content %}
+<h1>Set up</h1>
+<ol class="steps">
+  {% for s in steps %}
+  <li class="{{ 'on' if s == step }}"><a href="/setup?step={{ s }}">{{ loop.index }}. {{ s | capitalize }}</a></li>
+  {% endfor %}
+</ol>
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+<form method="post" class="settings">
+  <input type="hidden" name="step" value="{{ step }}">
+  {% if step == 'metadata' %}
+    <p>cli_debrid uses TMDB to look up movies and shows. TVDB gives better episode numbering for shows and anime.</p>
+    {{ f.metadata(c) }}
+  {% elif step == 'downloads' %}
+    <p>Where content streams from. Use a debrid service, usenet, or both. Everything is mounted at one path.</p>
+    {{ f.downloads(c, debrids) }}
+  {% elif step == 'indexers' %}
+    <p>Where to search. Torrentio works with no setup; add Prowlarr/Jackett/Zilean or a Newznab indexer if you have them.</p>
+    {{ f.indexers(c, indexer_types) }}
+  {% else %}
+    <p>Where your library lives, how good it should be, and (optionally) Plex and lists to follow.</p>
+    {{ f.library(c, presets) }}
+    {{ f.sources(c, source_types) }}
+  {% endif %}
+  <div class="row">
+    <button class="btn primary">{{ 'Finish' if step == steps[-1] else 'Save and continue' }}</button>
+    {% if error %}<a class="btn" href="/setup?step={{ steps[(steps.index(step) + 1) % steps | length] }}">Skip for now</a>{% endif %}
+  </div>
+</form>
+{% endblock %}

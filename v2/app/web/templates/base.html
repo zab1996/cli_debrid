@@ -9,10 +9,17 @@
 <body>
   <header class="top">
     <a class="brand" href="/">cli_debrid <span class="ver">{{ version }}</span></a>
+    {% if nav != 'setup' %}
     <nav>
-      <a href="/">Home</a>
+      <a href="/" class="{{ 'on' if nav == 'home' }}">Home</a>
+      <a href="/library" class="{{ 'on' if nav == 'library' }}">Library</a>
+      <a href="/add" class="{{ 'on' if nav == 'add' }}">Add</a>
+      <a href="/settings" class="{{ 'on' if nav == 'settings' }}">Settings</a>
+      <a href="/logs" class="{{ 'on' if nav == 'logs' }}">Logs</a>
     </nav>
+    {% endif %}
   </header>
   <main>{% block content %}{% endblock %}</main>
+  <script src="/static/app.js"></script>
 </body>
 </html>

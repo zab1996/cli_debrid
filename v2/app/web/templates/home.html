@@ -1,8 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
+<section class="status">
+  {% if not engine.available %}
+    <div class="pill warn">Mount engine not installed (dev mode)</div>
+  {% elif not engine.running %}
+    <div class="pill bad">Mount engine stopped{% if engine.restarts %} · restarted {{ engine.restarts }}×{% endif %}</div>
+  {% elif not engine.reachable %}
+    <div class="pill warn">Mount engine starting…</div>
+  {% else %}
+    <div class="pill {{ 'ok' if engine.mounted else 'warn' }}">Mount {{ 'ready' if engine.mounted else 'not mounted yet' }} · {{ engine.mount_path }}</div>
+    {% for p in engine.providers or [] %}<div class="pill ok">{{ p }}</div>{% endfor %}
+    {% if engine.usenet %}<div class="pill ok">usenet</div>{% endif %}
+  {% endif %}
+</section>
+
+{% if problems %}
+<div class="notice bad">
+  {% for p in problems %}<div>{{ p }}</div>{% endfor %}
+</div>
+{% endif %}
+
 <section class="counts">
   {% for s in states %}
-  <div class="count"><div class="n">{{ counts[s] }}</div><div class="label">{{ s }}</div></div>
+  <a class="count" href="/library?state={{ s }}"><div class="n">{{ counts[s] }}</div><div class="label">{{ s }}</div></a>
   {% endfor %}
 </section>
 
@@ -10,10 +30,10 @@
 {% if events %}
 <ul class="events">
   {% for e in events %}
-  <li><span class="when">{{ e.at | ago }}</span> {{ e.message }}</li>
+  <li><span class="when">{{ e.at | ago }}</span>{% if e.item_id %}<a href="/item/{{ e.item_id }}">{{ e.message }}</a>{% else %}{{ e.message }}{% endif %}</li>
   {% endfor %}
 </ul>
 {% else %}
-<p class="muted">Nothing yet.</p>
+<p class="muted">Nothing yet. <a href="/add">Add something</a> or add a list in <a href="/settings">Settings</a>.</p>
 {% endif %}
 {% endblock %}

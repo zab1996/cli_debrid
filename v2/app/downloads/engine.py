@@ -24,6 +24,10 @@ class EngineError(Exception):
     pass
 
 
+class EngineDown(EngineError):
+    """The engine could not be reached at all (not a verdict on the release)."""
+
+
 @dataclass
 class EngineFile:
     name: str          # path inside the entry, e.g. "Season 1/Show.S01E02.mkv"
@@ -54,7 +58,7 @@ async def _call(method: str, path: str, **kw):
     try:
         resp = await http.request(method, f"{ENGINE_URL}{path}", retries=1, timeout=60, **kw)
     except Exception as e:
-        raise EngineError(f"engine unreachable: {e}") from e
+        raise EngineDown(f"engine unreachable: {e}") from e
     if resp.status_code == 404:
         return None
     if resp.status_code >= 400:
