@@ -419,3 +419,16 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surf3); padd
 .rows.files .meta .sep { color: var(--accent); }
 .rows.files .fname { color: var(--text2); word-break: break-all; }
 .box[hidden] { display: none; }
+
+/* scene tags (1.x quality badges) */
+.qtags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.qbadge { display: inline-flex; align-items: center; padding: 2px 6px; font-size: 9.5px; font-weight: 700; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: .025em; line-height: 1.1; font-family: var(--mono); white-space: nowrap; }
+.qbadge.resolution { background: rgba(139, 92, 246, .2); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, .3); }
+.qbadge.source     { background: rgba(6, 182, 212, .2);  color: #67e8f9; border: 1px solid rgba(6, 182, 212, .3); }
+.qbadge.codec      { background: rgba(16, 185, 129, .2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, .3); }
+.qbadge.audio      { background: rgba(251, 146, 60, .2); color: #fdba74; border: 1px solid rgba(251, 146, 60, .3); }
+.qbadge.hdr        { background: rgba(234, 179, 8, .2);  color: #fde047; border: 1px solid rgba(234, 179, 8, .3); }
+.qbadge.group      { background: rgba(168, 85, 247, .2); color: #c084fc; border: 1px solid rgba(168, 85, 247, .3); }
+.qbadge.extension  { background: rgba(100, 116, 139, .2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, .3); }
+.rows.files .fname .qtags { margin-top: 2px; }

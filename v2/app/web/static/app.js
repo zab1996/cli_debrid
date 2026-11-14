@@ -117,3 +117,72 @@ document.addEventListener('submit', (e) => {
   });
   poll(); setInterval(poll, 15000);
 })();
+
+// ---------------------------------------------------------------- scene tags
+// Coloured release-name badges, ported from 1.x (torrent_modal_utils.js
+// extractQualityTags) with word boundaries so "DVD"/"Advent" aren't read as DV.
+(() => {
+  const L = '(?<![a-z0-9])', R = '(?![a-z0-9])';
+  const rx = (s, right = true) => new RegExp(L + '(?:' + s + ')' + (right ? R : ''), 'i');
+  const groups = [
+    // a stated resolution beats UHD/4K ("1080p.UHD.BluRay" is a 1080p encode of a UHD disc)
+    ['resolution', true, [['2160p', rx('2160p')], ['1080p', rx('1080[pi]')], ['720p', rx('720p')], ['480p', rx('480p|576p')],
+                          ['2160p', rx('4k|uhd')]]],
+    ['source', true, [['REMUX', rx('remux')]]],
+    ['source', true, [['BluRay', rx('blu-?ray|bdmv|bdrip|brrip')], ['WEB-DL', rx('web-?dl')],
+                      ['WEBRip', rx('webrip')], ['WEB', rx('web')], ['HDTV', rx('hdtv')], ['DVD', rx('dvdrip|dvd')]]],
+    ['codec', true, [['x265', rx('[xh]\\.?265|hevc', false)], ['x264', rx('[xh]\\.?264|avc', false)], ['AV1', rx('av1')], ['VP9', rx('vp9')]]],
+    ['audio', true, [['TrueHD', rx('truehd', false)], ['DTS-HD MA', rx('dts-?hd[ .-]?ma', false)], ['DTS-X', rx('dts-?x')],
+                     ['DTS', rx('dts', false)], ['DD+', rx('dd\\+|ddp|e-?ac-?3', false)], ['DD', rx('dd|ac-?3', false)],
+                     ['AAC', rx('aac', false)], ['FLAC', rx('flac', false)], ['Opus', rx('opus')]]],
+    ['audio', true, [['7.1', /(?<!\d)7\.1(?!\d)/], ['5.1', /(?<!\d)5\.1(?!\d)/], ['2.0', /(?<!\d)2\.0(?!\d)/]]],
+    ['audio', true, [['Atmos', rx('atmos')]]],
+    ['hdr', false, [['DV', rx('dv|dovi|dolby[ .]?vision')], ['HDR10+', rx('hdr10\\+|hdr10plus', false)],
+                    ['HDR10', rx('hdr10')], ['HDR', rx('hdr')]]],
+  ];
+  const notGroups = new Set(['mkv', 'mp4', 'avi', 'x264', 'x265', 'hevc', 'avc', 'bluray', 'webdl', 'webrip', 'hdtv',
+    '1080p', '720p', '2160p', '480p', 'web', 'dl', 'ddp', 'atmos', 'dts', 'truehd', 'hdr', 'dv', 'h264', 'h265', 'ma', 'remux', 'ac3', 'aac', 'dd', 'flac']);
+
+  function sceneTags(name) {
+    const tags = [];
+    if (!name) return tags;
+    for (const [type, firstOnly, pats] of groups) {
+      for (const [value, re] of pats) {
+        if (!re.test(name)) continue;
+        // HDR10+ / HDR10 already imply HDR
+        if (type === 'hdr' && value.startsWith('HDR') && tags.some(t => t.type === 'hdr' && t.value.startsWith('HDR'))) continue;
+        tags.push({ type, value });
+        if (firstOnly) break;
+      }
+    }
+    const ext = name.match(/\.(mkv|mp4|avi|m4v|ts)$/i);
+    const base = ext ? name.slice(0, -ext[0].length) : name;
+    const g = base.match(/-([A-Za-z0-9][A-Za-z0-9]+)(?:\[[^\]]*\])?$/);
+    if (g && g[1].length >= 2 && !notGroups.has(g[1].toLowerCase())) tags.push({ type: 'group', value: g[1] });
+    if (ext) tags.push({ type: 'extension', value: ext[1].toUpperCase() });
+    return tags;
+  }
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  // HTML for a row of badges; empty string when nothing was recognised.
+  function sceneBadges(name) {
+    const tags = sceneTags(name);
+    if (!tags.length) return '';
+    return '<span class="qtags">' + tags.map(t => `<span class="qbadge ${t.type}">${esc(t.value)}</span>`).join('') + '</span>';
+  }
+  // Turn every [data-scene] element's text into badges (full name stays as the tooltip).
+  function applySceneTags(root = document) {
+    root.querySelectorAll('[data-scene]:not([data-scene-done])').forEach(el => {
+      const name = el.textContent.trim();
+      el.dataset.sceneDone = '1';
+      const html = sceneBadges(name);
+      if (!html) return;
+      el.title = name;
+      el.innerHTML = html;
+    });
+  }
+  window.sceneTags = sceneTags;
+  window.sceneBadges = sceneBadges;
+  window.applySceneTags = applySceneTags;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => applySceneTags());
+  else applySceneTags();
+})();

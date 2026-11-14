@@ -79,7 +79,7 @@
       {% for m in recent_movies %}
       <li><a href="/item/{{ m.id }}"><span class="t">{{ m.title }}{% if m.year %} ({{ m.year }}){% endif %}</span>
         <span class="meta">{{ m.done_at | ago }}</span>
-        <span class="fname">{{ m.release_name or '' }}</span></a></li>
+        <span class="fname" data-scene>{{ m.release_name or '' }}</span></a></li>
       {% endfor %}
     </ul>
     {% else %}<div class="empty">No movies yet.</div>{% endif %}
@@ -91,7 +91,7 @@
       {% for e in recent_episodes %}
       <li><a href="/item/{{ e.id }}"><span class="t">{{ e.title }}</span>
         <span class="meta">S{{ '%02d' % e.season }}E{{ '%02d' % e.episode }} <span class="sep">•</span> {{ e.done_at | ago }}</span>
-        <span class="fname">{{ e.release_name or '' }}</span></a></li>
+        <span class="fname" data-scene>{{ e.release_name or '' }}</span></a></li>
       {% endfor %}
     </ul>
     {% else %}<div class="empty">No episodes yet.</div>{% endif %}
