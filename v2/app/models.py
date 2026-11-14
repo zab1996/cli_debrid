@@ -34,11 +34,14 @@ def next_backoff(attempts: int) -> int:
 class Item:
     id: int
     kind: str              # "movie" | "episode"
-    tmdb_id: int
-    title: str
+    tmdb_id: int           # for episodes: the show's TMDB id
+    tvdb_id: int | None
+    imdb_id: str | None
+    title: str             # movie title, or show title for episodes
     year: int | None
     season: int | None
     episode: int | None
+    absolute: int | None
     state: State
     release_date: str | None = None
     next_attempt_at: float | None = None
@@ -47,3 +50,10 @@ class Item:
     engine_id: str | None = None
     file_path: str | None = None
     done_at: float | None = None
+    source: str | None = None
+
+    @property
+    def label(self) -> str:
+        if self.kind == "episode":
+            return f"{self.title} S{self.season:02d}E{self.episode:02d}"
+        return f"{self.title} ({self.year})" if self.year else self.title

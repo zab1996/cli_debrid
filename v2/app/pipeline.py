@@ -8,7 +8,9 @@ from __future__ import annotations
 import logging
 import time
 
+from . import catalog
 from .db import DB
+from .metadata import cache
 from .models import WEEKLY, State
 from .worker import Worker
 
@@ -57,4 +59,5 @@ def register(worker: Worker, db: DB) -> None:
 
     @worker.every(DAY)
     async def refresh_metadata() -> None:
-        pass  # phase 2
+        await catalog.refresh_all_shows(db)
+        cache.purge_expired(db)

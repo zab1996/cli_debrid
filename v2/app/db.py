@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS items (
     year            INTEGER,
     season          INTEGER,
     episode         INTEGER,
+    absolute        INTEGER,
     state           TEXT NOT NULL,
     release_date    TEXT,
     next_attempt_at REAL,
@@ -42,6 +43,24 @@ CREATE TABLE IF NOT EXISTS items (
     UNIQUE (kind, tmdb_id, season, episode)
 );
 CREATE INDEX IF NOT EXISTS items_state ON items(state, next_attempt_at);
+CREATE INDEX IF NOT EXISTS items_show ON items(kind, tmdb_id);
+
+-- One row per requested show. Episodes live in items.
+CREATE TABLE IF NOT EXISTS shows (
+    tmdb_id        INTEGER PRIMARY KEY,
+    tvdb_id        INTEGER,
+    imdb_id        TEXT,
+    title          TEXT NOT NULL,
+    original_title TEXT,
+    year           INTEGER,
+    aliases        TEXT NOT NULL DEFAULT '[]',   -- JSON list
+    is_anime       INTEGER NOT NULL DEFAULT 0,
+    status         TEXT,
+    seasons        TEXT,                         -- JSON list, NULL = all seasons
+    source         TEXT,
+    added_at       REAL NOT NULL,
+    refreshed_at   REAL
+);
 
 -- Every release ever picked for an item, so replace/upgrade can skip it.
 CREATE TABLE IF NOT EXISTS releases_tried (
@@ -75,8 +94,9 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 """
 
-_ITEM_COLS = ("id, kind, tmdb_id, title, year, season, episode, state, release_date, "
-              "next_attempt_at, attempts, release_name, engine_id, file_path, done_at")
+_ITEM_COLS = ("id, kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode, absolute, "
+              "state, release_date, next_attempt_at, attempts, release_name, engine_id, "
+              "file_path, done_at, source")
 
 
 class DB:
@@ -121,8 +141,10 @@ class DB:
     def add_item(self, *, kind: str, tmdb_id: int, title: str, year: int | None = None,
                  season: int | None = None, episode: int | None = None,
                  release_date: str | None = None, source: str | None = None,
-                 tvdb_id: int | None = None, imdb_id: str | None = None) -> int | None:
-        """Insert a Wanted item. Returns its id, or None if it already exists."""
+                 tvdb_id: int | None = None, imdb_id: str | None = None,
+                 absolute: int | None = None, state: State = State.WANTED,
+                 next_attempt_at: float | None = None) -> int | None:
+        """Insert an item. Returns its id, or None if it already exists."""
         now = time.time()
         with self.tx() as c:
             # UNIQUE treats NULLs as distinct, so check movies explicitly.
@@ -134,10 +156,10 @@ class DB:
                 return None
             cur = c.execute(
                 "INSERT INTO items(kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode,"
-                " state, release_date, source, added_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode,
-                 State.WANTED.value, release_date, source, now, now),
+                " absolute, state, release_date, next_attempt_at, source, added_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode, absolute,
+                 state.value, release_date, next_attempt_at, source, now, now),
             )
             return cur.lastrowid
 
@@ -161,7 +183,7 @@ class DB:
 
     def set_state(self, item_id: int, state: State, **fields: Any) -> None:
         allowed = {"next_attempt_at", "attempts", "release_name", "engine_id",
-                   "file_path", "done_at"}
+                   "file_path", "done_at", "release_date", "absolute"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"unknown item fields: {bad}")
