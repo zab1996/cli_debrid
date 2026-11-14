@@ -31,6 +31,7 @@ COPY --from=engine /out/clid2-engine /app/bin/clid2-engine
 COPY app ./app
 
 VOLUME /data
-EXPOSE 5060
+EXPOSE 5070
 STOPSIGNAL SIGTERM
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5060"]
+# 5070, not 5060: browsers refuse 5060/5061 (SIP) as "unsafe ports".
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${CLID2_PORT:-5070}"]

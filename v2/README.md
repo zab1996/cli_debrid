@@ -41,7 +41,7 @@ cd v2
 CLID2_DATA_DIR=/path/to/data CLID2_MOUNT_DIR=/path/to/mnt CLID2_MEDIA_DIR=/path/to/media \
   docker compose -f docker-compose.v2.yml up -d --build
 ```
-Then open http://host:5060 and the setup wizard starts.
+Then open http://host:5070 and the setup wizard starts.
 
 ## Develop
 ```bash
@@ -49,7 +49,7 @@ cd v2
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest pyflakes
 .venv/bin/pytest                      # Python tests
 (cd engine && go test ./...)          # engine tests
-CLID2_DATA=./data .venv/bin/uvicorn app.main:app --port 5060   # runs without the engine (dev mode)
+CLID2_DATA=./data .venv/bin/uvicorn app.main:app --port 5070   # runs without the engine (dev mode)
 ```
 
 ## Live patching

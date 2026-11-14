@@ -4,7 +4,7 @@ services:
     build: .
     container_name: cli_debrid_v2
     ports:
-      - "5060:5060"
+      - "5070:5070"
     volumes:
       - ${CLID2_DATA_DIR:-./data}:/data
       # Mount point shared with the host (and Plex) so the media is visible outside.
