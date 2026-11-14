@@ -28,7 +28,7 @@
           {% if it.mode %}<span class="muted">({{ it.mode }})</span>{% endif %}
           {% if it.next_attempt_at %}<span class="muted">next try {{ it.next_attempt_at | ago }}</span>{% endif %}</dd>
         <dt>Released</dt><dd>{{ it.release_date or 'unknown' }}</dd>
-        {% if it.release_name %}<dt>Release</dt><dd class="mono">{{ it.release_name }}</dd>{% endif %}
+        {% if it.release_name %}<dt>Release</dt><dd class="mono">{{ it.release_name }}<div class="qline" data-scene="extra">{{ it.release_name }}</div></dd>{% endif %}
         {% if it.file_path %}<dt>File</dt><dd class="mono">{{ it.file_path }}</dd>{% endif %}
         {% if it.attempts %}<dt>Empty searches</dt><dd>{{ it.attempts }}</dd>{% endif %}
         <dt>Added from</dt><dd>{{ it.source or 'manual' }}</dd>

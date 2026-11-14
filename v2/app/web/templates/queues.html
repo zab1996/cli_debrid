@@ -14,7 +14,7 @@
     {% if q.name == 'Done' %}<span class="sep">-</span><span class="lbl">Collected:</span> {{ it.done_at | ago }}
     {% else %}<span class="sep">-</span><span class="lbl">Time Added:</span> {{ it.added_at | ymd }}{% endif %}
     {% if it.source and it.source != 'manual' %}<span class="sep">-</span><span class="lbl small"><i>{{ it.source }}</i></span>{% endif %}
-    {% if it.release_name and q.name in ('Downloading', 'Done') %}<div class="rel">{{ it.release_name }}</div>{% endif %}
+    {% if it.release_name and q.name in ('Downloading', 'Done') %}<div class="rel" data-scene>{{ it.release_name }}</div>{% endif %}
   </div>
   {% else %}
   <div class="empty">Empty.</div>

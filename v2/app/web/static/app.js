@@ -175,7 +175,7 @@ document.addEventListener('submit', (e) => {
       const name = el.textContent.trim();
       el.dataset.sceneDone = '1';
       const html = sceneBadges(name);
-      if (!html) return;
+      if (!html) { if (el.dataset.scene === 'extra') el.remove(); return; }
       el.title = name;
       el.innerHTML = html;
     });

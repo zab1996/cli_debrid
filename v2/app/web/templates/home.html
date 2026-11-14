@@ -28,6 +28,7 @@
   <ul class="rows" id="streamRows">
     {% for st in mount.streams or [] %}
     <li><span class="ttl fname" title="{{ st.file }}">{{ st.file }}</span>
+      <span class="sbadges" data-scene="extra">{{ st.file }}</span>
       <span class="when">{% if st.source %}<span class="tag">{{ 'usenet' if st.source == 'nzb' else 'debrid' }}</span> {% endif %}{{ st['for'] | duration }}</span></li>
     {% endfor %}
   </ul>
@@ -119,7 +120,8 @@
     const c = document.getElementById('tbConns'); if (c && m.usenet) c.textContent = `${m.usenet.active} / ${m.usenet.max}`;
     document.getElementById('nowStreaming').hidden = !list.length;
     document.getElementById('streamRows').innerHTML = list.map((st) =>
-      `<li><span class="ttl fname" title="${esc(st.file)}">${esc(st.file)}</span><span class="when">` +
+      `<li><span class="ttl fname" title="${esc(st.file)}">${esc(st.file)}</span>` +
+      (window.sceneBadges ? `<span class="sbadges">${sceneBadges(st.file)}</span>` : '') + `<span class="when">` +
       (st.source ? `<span class="tag">${st.source === 'nzb' ? 'usenet' : 'debrid'}</span> ` : '') + `${dur(st['for'])}</span></li>`).join('');
   };
   setInterval(tick, 10000);

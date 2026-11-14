@@ -432,3 +432,8 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surf3); padd
 .qbadge.group      { background: rgba(168, 85, 247, .2); color: #c084fc; border: 1px solid rgba(168, 85, 247, .3); }
 .qbadge.extension  { background: rgba(100, 116, 139, .2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, .3); }
 .rows.files .fname .qtags { margin-top: 2px; }
+
+.qline { margin-top: 5px; }
+.box.streams .rows li .ttl { flex: 1; }
+.box.streams .sbadges { flex-shrink: 0; }
+@media (max-width: 700px) { .box.streams .sbadges { display: none; } }

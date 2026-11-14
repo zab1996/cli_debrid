@@ -32,7 +32,7 @@
         <tr>
           <td style="width:60px"><a href="/item/{{ e.id }}">E{{ '%02d' % e.episode }}</a></td>
           <td style="width:130px"><span class="tag {{ e.state }}">{{ e.state }}</span></td>
-          <td class="mono hide-sm">{{ e.release_name or '' }}</td>
+          <td class="mono hide-sm"><span data-scene>{{ e.release_name or '' }}</span></td>
           <td class="mono" style="width:110px">{% if e.state == 'Waiting' and e.next_attempt_at %}{{ e.next_attempt_at | ago }}{% else %}{{ e.release_date or '' }}{% endif %}</td>
           <td style="width:170px;text-align:right;white-space:nowrap">
             <a class="iconbtn" href="/releases?kind=episode&tmdb_id={{ show.tmdb_id }}&season={{ season }}&episode={{ e.episode }}&back_to=/show/{{ show.tmdb_id }}">Releases</a>
