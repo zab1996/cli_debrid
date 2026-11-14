@@ -29,6 +29,8 @@ def block(db: DB, kind: str, tmdb_id: int, title: str = "", season: int | None =
                   (kind, tmdb_id, WHOLE if season is None else season, title, reason, time.time()))
     what = title + (f" season {season}" if season is not None else "")
     db.log_event(f"Blacklisted {what}")
+    from . import notify
+    notify.emit(db, "blacklisted", what or str(tmdb_id), reason)
 
 
 def unblock(db: DB, kind: str, tmdb_id: int, season: int | None = None) -> None:

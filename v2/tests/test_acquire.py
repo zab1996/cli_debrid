@@ -94,6 +94,7 @@ def T(title, h, size=4.0):
 
 def test_movie_happy_path_with_rejected_first(env, db):
     fe, results, tmp = env
+    config.get().notifications = [config.NotifyTarget(type="webhook", url="https://x")]
     results += [T("The.Matrix.1999.1080p.BluRay.x264", "a1", 10),
                 T("The.Matrix.1999.1080p.WEB-DL", "b2", 4)]
     fe.reject.add(H("a1"))
@@ -111,6 +112,8 @@ def test_movie_happy_path_with_rejected_first(env, db):
     it = db.get_item(mid)
     assert it.state is State.DONE
     assert os.readlink(it.file_path).endswith(H("b2") + "/The.Matrix.1999.1080p.WEB-DL.mkv")
+    n = db.query("SELECT event, title FROM notifications")
+    assert [(r["event"], r["title"]) for r in n] == [("collected", "The Matrix (1999)")]
     assert fe.deleted == []
 
 

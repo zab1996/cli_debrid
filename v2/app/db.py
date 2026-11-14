@@ -140,6 +140,17 @@ CREATE TABLE IF NOT EXISTS skipped_episodes (
     PRIMARY KEY (tmdb_id, season, episode)
 );
 
+-- Outgoing notifications, batched and sent by the worker (survives restarts).
+CREATE TABLE IF NOT EXISTS notifications (
+    id      INTEGER PRIMARY KEY,
+    event   TEXT NOT NULL,         -- collected | upgraded | failed | blacklisted
+    title   TEXT NOT NULL,
+    detail  TEXT,
+    item_id INTEGER,
+    at      REAL NOT NULL,
+    tries   INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import time
 
-from . import acquire, catalog, sources
+from . import acquire, catalog, notify, sources
 from .db import DB
 from .metadata import cache
 from .models import WEEKLY, State
@@ -53,6 +53,10 @@ def register(worker: Worker, db: DB) -> None:
     @worker.every(DAY)
     async def upgrade_sweep() -> None:
         await upgrades.sweep(db)
+
+    @worker.every(30)
+    async def send_notifications() -> None:
+        await notify.flush(db)
 
     @worker.every(10 * MINUTE)
     async def backfill_posters() -> None:

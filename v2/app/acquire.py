@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 
-from . import config, http, search
+from . import config, http, notify, search
 from .db import DB
 from .downloads import engine
 from .library import match, plex, symlink
@@ -146,6 +146,7 @@ def _nothing_found(db: DB, it: Item) -> None:
     if attempts >= MAX_EMPTY_SEARCHES:
         db.set_state(it.id, State.FAILED, attempts=attempts, next_attempt_at=None)
         db.log_event(f"Gave up on {it.label} after {attempts} searches", it.id)
+        notify.emit(db, "failed", it.label, f"nothing usable after {attempts} searches", it.id)
         log.warning("%s nothing usable after %d searches -> Failed (weekly retry)", it.tag, attempts)
     else:
         wait = next_backoff(attempts)
@@ -225,6 +226,10 @@ async def _finish(db: DB, items: list[Item], st: engine.EntryStatus) -> None:
             continue
         if it.prev_engine_id:
             old_ids.add(it.prev_engine_id)
+        if it.mode:
+            notify.emit(db, "upgraded", it.label, f.name.rsplit("/", 1)[-1], it.id)
+        else:
+            notify.emit(db, "collected", it.label, st.name, it.id)
         db.set_state(it.id, State.DONE, file_path=path, done_at=time.time(), mode=None,
                      prev_engine_id=None, attempts=0, downloading_since=None)
         log.info("%s Done: %s -> %s", it.tag, f.name, path)

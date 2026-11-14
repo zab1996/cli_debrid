@@ -146,3 +146,36 @@
   </div>
 </fieldset>
 {% endmacro %}
+
+{% macro notifications(c) %}
+<fieldset>
+  <legend>Notify me when…</legend>
+  <input type="hidden" name="notify-present" value="1">
+  <div class="row">
+    {% for k, label in [('collected', 'Something is collected'), ('upgraded', 'A file is replaced / upgraded'), ('failed', 'Something gives up (Failed)'), ('blacklisted', 'I blacklist a title')] %}
+    <label class="check"><input type="checkbox" name="notify_on.{{ k }}" {{ 'checked' if c.notify_on[k] }}> {{ label }}</label>
+    {% endfor %}
+  </div>
+  <p class="hint">Messages are batched every 30 seconds, so a season pack sends one message listing its episodes.</p>
+</fieldset>
+<fieldset>
+  <legend>Send to</legend>
+  <p class="hint">Discord: webhook URL. Telegram: bot token + chat id. ntfy: topic URL (token optional). Pushover: app token + user key (in "Chat id / user key"). Webhook: URL gets JSON. Clear the row to remove it.</p>
+  {% for n in c.notifications + [none] %}{% set i = loop.index0 %}
+  <div class="row card">
+    <label>Service
+      <select name="notify-{{ i }}-type">
+        <option value="">—</option>
+        {% for t, label in [('discord', 'Discord'), ('telegram', 'Telegram'), ('ntfy', 'ntfy'), ('pushover', 'Pushover'), ('webhook', 'Webhook (JSON)')] %}
+        <option value="{{ t }}" {{ 'selected' if n and n.type == t }}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="grow">URL <input type="password" class="secret" name="notify-{{ i }}-url" value="{{ n.url if n else '' }}" placeholder="https://discord.com/api/webhooks/…"></label>
+    <label>Token <input type="password" class="secret" name="notify-{{ i }}-token" value="{{ n.token if n else '' }}"></label>
+    <label>Chat id / user key <input name="notify-{{ i }}-chat_id" value="{{ n.chat_id if n else '' }}"></label>
+    <label class="check"><input type="checkbox" name="notify-{{ i }}-enabled" {{ 'checked' if (not n or n.enabled) }}> On</label>
+    {{ test_button("notify-" ~ i) }}
+  </div>
+  {% endfor %}
+</fieldset>
+{% endmacro %}

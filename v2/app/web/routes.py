@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from .. import __version__, blacklist, catalog, checks, config, interactive, manage
+from .. import __version__, blacklist, catalog, checks, config, interactive, manage, notify
 from ..config import Config
 from ..downloads import engine
 from ..metadata import tmdb
@@ -632,6 +632,14 @@ def config_from_form(form, base: Config) -> Config:
              "enabled": r.get("enabled") == "on"}
             for r in _rows(form, "indexers", ["type", "url", "api_key", "enabled"])
             if r.get("type") and (r.get("url", "").strip() or r["type"] == "torrentio")]
+    if "notify-present" in form:
+        d["notifications"] = [
+            {"type": r["type"], "url": r.get("url", "").strip(), "token": r.get("token", "").strip(),
+             "chat_id": r.get("chat_id", "").strip(), "enabled": r.get("enabled") == "on"}
+            for r in _rows(form, "notify", ["type", "url", "token", "chat_id", "enabled"])
+            if r.get("type") and (r.get("url", "").strip() or r.get("token", "").strip())]
+        d["notify_on"] = {k: form.get(f"notify_on.{k}") == "on"
+                          for k in ("collected", "upgraded", "failed", "blacklisted")}
     if "sources-present" in form:
         d["sources"] = [
             {"type": r["type"], "value": r.get("value", "").strip(), "enabled": r.get("enabled") == "on"}
@@ -691,6 +699,9 @@ async def test_connection(request: Request):
     elif what.startswith("usenet-"):
         i = int(what.split("-")[1])
         msg = await checks.usenet(cfg.usenet[i]) if i < len(cfg.usenet) else "fill in the host first"
+    elif what.startswith("notify-"):
+        i = int(what.split("-")[1])
+        msg = await notify.test(cfg.notifications[i]) if i < len(cfg.notifications) else "fill in the row first"
     elif what.startswith("indexers-"):
         i = int(what.split("-")[1])
         msg = await checks.indexer(cfg.indexers[i]) if i < len(cfg.indexers) else "fill in the row first"

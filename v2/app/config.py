@@ -60,6 +60,21 @@ class IndexerConfig(BaseModel):
     enabled: bool = True
 
 
+class NotifyTarget(BaseModel):
+    type: Literal["discord", "telegram", "ntfy", "pushover", "webhook"]
+    url: str = ""        # discord/ntfy/webhook URL
+    token: str = ""      # telegram bot token / pushover app token / ntfy access token
+    chat_id: str = ""    # telegram chat id / pushover user key
+    enabled: bool = True
+
+
+class NotifyOn(BaseModel):
+    collected: bool = True     # something new is in the library
+    upgraded: bool = True      # a file was replaced (upgrade, Plex report, or by you)
+    failed: bool = True        # gave up after repeated empty searches
+    blacklisted: bool = True   # you blacklisted a title
+
+
 class QualityConfig(BaseModel):
     preset: Literal["1080p", "4k", "4k_1080p"] = "1080p"
     min_size_gb: float = 0.0
@@ -89,6 +104,8 @@ class Config(BaseModel):
     indexers: list[IndexerConfig] = Field(default_factory=list)
     quality: QualityConfig = Field(default_factory=QualityConfig)
     upgrade_days: int = 7
+    notifications: list[NotifyTarget] = Field(default_factory=list)
+    notify_on: NotifyOn = Field(default_factory=NotifyOn)
     web_password: str = ""  # empty = no login (keep the app on a private network)
     advanced: dict[str, Any] = Field(default_factory=dict)
 
