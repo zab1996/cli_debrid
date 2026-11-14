@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, acquire, config, http
 from .db import DB
-from .engine_proc import EngineProcess
+from .engine_proc import make_engine
 from .pipeline import register
 from .web.routes import STATIC_DIR, router
 from .worker import Worker
@@ -69,7 +69,7 @@ def create_app(db_path: str | None = None, start_worker: bool = True,
         acquire.recover_interrupted(db)
         worker = Worker(db=db)
         register(worker, db)
-        engine = EngineProcess()
+        engine = make_engine()
         app.state.db = db
         app.state.worker = worker
         app.state.engine = engine

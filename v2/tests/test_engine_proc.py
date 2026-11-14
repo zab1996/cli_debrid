@@ -78,3 +78,39 @@ def test_mount_settings_reach_engine_with_live_defaults():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         config.MountConfig(chunk_size="lots")
+
+
+def test_external_engine_restarts_mount_only_when_its_config_changes(tmp_path, monkeypatch):
+    import os
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "engine.pid").write_text(str(os.getpid()))   # "running": this test process
+    (run / "engine.restarts").write_text("3")
+    killed = []
+    monkeypatch.setattr(engine_proc.os, "kill", lambda pid, sig: killed.append(sig))
+    cfg = config.Config()
+    cfg.debrid.provider, cfg.debrid.api_key = "realdebrid", "k"
+    monkeypatch.setattr(config, "_current", cfg)
+    e = engine_proc.ExternalEngine(binary=str(tmp_path / "bin"), run_dir=run)
+    assert e.running and e.restarts == 3
+
+    e.start()                                   # first config write while running -> one restart
+    term = [s for s in killed if s != 0]
+    assert len(term) == 1 and (run / "engine.restart-requested").exists()
+    (run / "engine.restart-requested").unlink()
+
+    killed.clear()
+    asyncio.run(e.restart())                    # settings saved, nothing engine-related changed
+    asyncio.run(e.stop())                       # app stopping (live patch): engine left alone
+    assert [s for s in killed if s != 0] == []
+
+    cfg.mount.chunk_size = "16MB"               # an engine setting changed -> restart
+    asyncio.run(e.restart())
+    assert len([s for s in killed if s != 0]) == 1
+
+
+def test_make_engine_picks_mode(monkeypatch):
+    monkeypatch.setenv("CLID2_ENGINE_MANAGED", "external")
+    assert isinstance(engine_proc.make_engine(), engine_proc.ExternalEngine)
+    monkeypatch.delenv("CLID2_ENGINE_MANAGED")
+    assert isinstance(engine_proc.make_engine(), engine_proc.EngineProcess)

@@ -17,4 +17,5 @@ services:
       - SYS_ADMIN
     security_opt:
       - apparmor:unconfined
+    stop_grace_period: 45s   # lets the mount engine unmount cleanly
     restart: unless-stopped

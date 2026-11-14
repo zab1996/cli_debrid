@@ -4,6 +4,10 @@
   <h1>Logs</h1>
   <form method="get" class="filters" style="margin:0">
     <input id="logFilter" placeholder="Filter lines" style="width:220px">
+    <select name="which" onchange="this.form.submit()">
+      <option value="app" {{ 'selected' if which == 'app' }}>App log</option>
+      <option value="engine" {{ 'selected' if which == 'engine' }}>Mount engine log</option>
+    </select>
     <select name="lines" onchange="this.form.submit()">
       {% for n in (300, 1000, 5000) %}<option value="{{ n }}" {{ 'selected' if n == lines }}>Last {{ n }} lines</option>{% endfor %}
     </select>

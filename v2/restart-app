@@ -1,0 +1,9 @@
+#!/bin/sh
+# Restart only the Python app (after a live patch). The mount keeps running.
+#   docker exec cli_debrid_v2 restart-app
+PID_FILE=/run/clid2/app.pid
+if [ ! -f "$PID_FILE" ]; then
+    echo "app isn't running under run.sh" >&2
+    exit 1
+fi
+kill -TERM "$(cat "$PID_FILE")" && echo "app restarting (mount untouched)"

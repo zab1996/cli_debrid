@@ -92,13 +92,30 @@ def _merge(base: dict, extra: dict) -> None:
             base[k] = v
 
 
-def write(cfg: Config, engine_dir: Path) -> Path:
+def write(cfg: Config, engine_dir: Path) -> bool:
+    """Write the engine's config.json. Returns True only if its content changed
+    (callers restart the mount only then)."""
     engine_dir.mkdir(parents=True, exist_ok=True)
     (engine_dir / "downloads").mkdir(exist_ok=True)
     (engine_dir / "cache").mkdir(exist_ok=True)
     path = engine_dir / "config.json"
+    text = json.dumps(build(cfg, engine_dir), indent=2)
+    try:
+        if path.read_text() == text:
+            return False
+    except OSError:
+        pass
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(build(cfg, engine_dir), indent=2))
+    tmp.write_text(text)
     os.chmod(tmp, 0o600)  # holds API keys and usenet passwords
     os.replace(tmp, path)
-    return path
+    return True
+
+
+def remove(engine_dir: Path) -> bool:
+    """No providers left: drop the config so the engine isn't started again."""
+    try:
+        (engine_dir / "config.json").unlink()
+        return True
+    except FileNotFoundError:
+        return False

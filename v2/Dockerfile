@@ -15,7 +15,7 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/clid2-engine .
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends fuse libfuse2 ffmpeg ca-certificates tzdata \
+ && apt-get install -y --no-install-recommends fuse libfuse2 ffmpeg ca-certificates tzdata tini \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i 's/^#user_allow_other/user_allow_other/' /etc/fuse.conf
 
@@ -29,9 +29,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --from=engine /out/clid2-engine /app/bin/clid2-engine
 COPY app ./app
+COPY run.sh /app/run.sh
+COPY restart-app /usr/local/bin/restart-app
+RUN chmod +x /app/run.sh /usr/local/bin/restart-app
 
 VOLUME /data
 EXPOSE 5070
 STOPSIGNAL SIGTERM
-# 5070, not 5060: browsers refuse 5060/5061 (SIP) as "unsafe ports".
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${CLID2_PORT:-5070}"]
+# run.sh keeps the app and the mount engine alive independently, so
+# `docker exec <container> restart-app` reloads Python without touching the mount.
+# UI port: CLID2_PORT (5070 by default; browsers refuse 5060 as "unsafe").
+ENTRYPOINT ["tini", "--", "/app/run.sh"]

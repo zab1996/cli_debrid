@@ -53,15 +53,17 @@ CLID2_DATA=./data .venv/bin/uvicorn app.main:app --port 5070   # runs without th
 ```
 
 ## Live patching
-- **Python:** copy the changed file into the container, then restart it.
-  ```bash
-  docker cp app/acquire.py cli_debrid_v2:/app/app/acquire.py && docker restart cli_debrid_v2
-  ```
-- **Engine:** build the binary, copy it in, then restart.
-  ```bash
-  (cd engine && go build -o /tmp/clid2-engine .)   # needs libfuse-dev; build on Debian/Ubuntu for glibc \
-    && docker cp /tmp/clid2-engine cli_debrid_v2:/app/bin/clid2-engine && docker restart cli_debrid_v2
-  ```
+The container runs the app and the mount engine as two separately supervised processes (`run.sh` under `tini`), so **patching Python never restarts the mount**:
+```bash
+docker cp app/acquire.py cli_debrid_v2:/app/app/acquire.py     # or: tar -cf - app | docker exec -i cli_debrid_v2 tar -xf - -C /app
+docker exec cli_debrid_v2 restart-app                          # app only; streams keep playing
+```
+The mount engine restarts only when its generated settings change (Mount / debrid / usenet / Plex prewarm), or if it crashes. To patch the engine itself:
+```bash
+(cd engine && go build -o /tmp/clid2-engine .)   # needs libfuse-dev; build on Debian/Ubuntu for glibc
+docker cp /tmp/clid2-engine cli_debrid_v2:/app/bin/clid2-engine && docker restart cli_debrid_v2
+```
+Engine output goes to `docker logs` and `data/logs/engine.log` (Logs page → "Mount engine log").
 
 ## Layout
 | Path | What |
@@ -75,7 +77,8 @@ CLID2_DATA=./data .venv/bin/uvicorn app.main:app --port 5070   # runs without th
 | `app/library/` | file matching, symlinks, Plex scans |
 | `app/sources/` | Plex watchlist, Trakt, MDBList |
 | `app/repair/` | Plex reported issues, upgrades |
-| `app/engine_proc.py`, `app/engine_config.py`, `app/downloads/engine.py` | running and talking to the engine |
+| `run.sh`, `restart-app` | container entrypoint: keeps app + engine alive independently |
+| `app/engine_proc.py`, `app/engine_config.py`, `app/downloads/engine.py` | engine config, status and API |
 | `app/web/` | UI (Jinja2, no JS build step) |
 | `engine/` | bundled Go mount engine |
 

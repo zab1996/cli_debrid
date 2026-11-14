@@ -708,14 +708,10 @@ def config_from_form(form, base: Config) -> Config:
     return Config.model_validate(d)
 
 
-ENGINE_KEYS = ("debrid", "usenet", "mount")
-
-
 async def _apply(request: Request, new: Config) -> None:
-    old = config.get()
     config.save(new)
-    if any(getattr(old, k) != getattr(new, k) for k in ENGINE_KEYS):
-        await request.app.state.engine.restart()
+    # The engine decides: it restarts only if its generated config changed.
+    await request.app.state.engine.restart()
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -826,13 +822,17 @@ async def setup_save(request: Request):
 
 
 @router.get("/logs", response_class=HTMLResponse)
-def logs(request: Request, lines: int = 300):
-    path = config.DATA_DIR / "logs" / "clid2.log"
+def logs(request: Request, lines: int = 300, which: str = "app"):
+    which = "engine" if which == "engine" else "app"
+    path = config.DATA_DIR / "logs" / ("engine.log" if which == "engine" else "clid2.log")
     text = ""
     if path.exists():
         with path.open(errors="replace") as f:
             text = "".join(deque(f, maxlen=min(max(lines, 50), 5000)))
-    return render(request, "logs.html", text=text, lines=lines)
+    return render(request, "logs.html", text=_ANSI_RE.sub("", text), lines=lines, which=which)
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @router.get("/api/inbox")

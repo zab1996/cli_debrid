@@ -1,7 +1,14 @@
-"""Starts, watches and stops the bundled mount engine (a Go binary).
+"""The bundled mount engine (a Go binary): config, start/stop, status.
 
-The engine's config is generated from our settings on every start, so the
-user only ever edits one config. Engine output is forwarded into our log.
+Two ways it can be run:
+
+* In the container, run.sh owns the engine process (CLID2_ENGINE_MANAGED=external)
+  and the app only writes its config and signals it. Restarting the app
+  (live patching) therefore never restarts the mount.
+* Elsewhere (development), EngineProcess runs the engine as a child.
+
+Either way the engine is restarted only when its generated config.json
+actually changes, never just because settings were saved.
 """
 from __future__ import annotations
 
@@ -108,8 +115,9 @@ class EngineProcess:
             pass
 
     async def restart(self) -> None:
-        """Apply new settings: the supervisor rewrites config and starts again."""
-        if self.running:
+        """Apply new settings: restart only if the engine's config changed."""
+        if self.running and engine_config.write(config.get(), self.config_dir()):
+            log.info("engine settings changed; restarting the mount")
             self.proc.send_signal(signal.SIGTERM)
 
     async def stop(self) -> None:
@@ -149,6 +157,89 @@ def is_fuse_mount(path: str, mountinfo: str | None = None) -> bool:
         if mp == target and fstype.startswith("fuse"):
             return True
     return False
+
+
+RUN_DIR = Path(os.environ.get("CLID2_RUN_DIR", "/run/clid2"))
+
+
+class ExternalEngine:
+    """The engine is run by run.sh; we write its config and signal it.
+
+    Starting or stopping the app leaves the engine (and the mount) alone.
+    """
+
+    def __init__(self, binary: str = ENGINE_BIN, run_dir: Path | None = None):
+        self.binary = binary
+        self.run_dir = run_dir or RUN_DIR
+        self.last_exit = None
+
+    @property
+    def available(self) -> bool:
+        return Path(self.binary).is_file() and os.access(self.binary, os.X_OK)
+
+    def _pid(self) -> int | None:
+        try:
+            return int((self.run_dir / "engine.pid").read_text().strip())
+        except (OSError, ValueError):
+            return None
+
+    @property
+    def running(self) -> bool:
+        pid = self._pid()
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    @property
+    def restarts(self) -> int:
+        try:
+            return int((self.run_dir / "engine.restarts").read_text().strip())
+        except (OSError, ValueError):
+            return 0
+
+    def config_dir(self) -> Path:
+        return config.DATA_DIR / "engine"
+
+    def _signal_restart(self, why: str) -> None:
+        pid = self._pid()
+        if not pid:
+            return
+        log.info("%s; restarting the mount", why)
+        (self.run_dir / "engine.restart-requested").touch()
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    def _sync(self) -> None:
+        cfg = config.get()
+        if not engine_config.ready(cfg):
+            if engine_config.remove(self.config_dir()) and self.running:
+                self._signal_restart("no debrid or usenet left")
+            return
+        if engine_config.write(cfg, self.config_dir()) and self.running:
+            self._signal_restart("engine settings changed")
+
+    def start(self) -> None:
+        self._sync()
+        if self.running:
+            log.info("mount engine already running (pid %s); keeping it", self._pid())
+
+    async def restart(self) -> None:
+        self._sync()
+
+    async def stop(self) -> None:
+        """The app is stopping (maybe just for a live patch): leave the engine running."""
+
+
+def make_engine():
+    if os.environ.get("CLID2_ENGINE_MANAGED") == "external":
+        return ExternalEngine()
+    return EngineProcess()
 
 
 def lazy_unmount(path: str) -> None:
