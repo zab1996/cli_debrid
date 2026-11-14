@@ -4,22 +4,56 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}cli_debrid{% endblock %}</title>
+  <link rel="icon" type="image/png" href="/static/white-icon-32x32.png">
+  <link rel="apple-touch-icon" href="/static/favicon-192x192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="top">
-    <a class="brand" href="/">cli_debrid <span class="ver">{{ version }}</span></a>
+{% set icons = {
+  'Home': 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
+  'Add': 'M12 6v6m0 0v6m0-6h6m-6 0H6',
+  'Library': 'M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z',
+  'Queues': 'M4 6h16M4 10h16M4 14h16M4 18h16',
+  'Settings': 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
+  'Logs': 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+  'Setup': 'M13 10V3L4 14h7v7l9-11h-7z',
+} %}
+{% set menu = {
+  'Main': [('/', 'Home', 'home'), ('/add', 'Add', 'add'), ('/library', 'Library', 'library'), ('/queues', 'Queues', 'queues')],
+  'System': [('/settings', 'Settings', 'settings'), ('/logs', 'Logs', 'logs'), ('/setup', 'Setup', 'setup')],
+} %}
+  <header>
+    <a class="brand" href="/">
+      <img src="/static/white-icon-32x32.png" alt="">
+      <span class="t"><span class="name">cli_debrid</span><span class="ver">v{{ version }}</span></span>
+    </a>
     {% if nav != 'setup' %}
+    <button class="hamburger" aria-label="Menu" onclick="document.querySelector('nav').classList.toggle('open')">☰</button>
     <nav>
-      <a href="/" class="{{ 'on' if nav == 'home' }}">Home</a>
-      <a href="/library" class="{{ 'on' if nav == 'library' }}">Library</a>
-      <a href="/add" class="{{ 'on' if nav == 'add' }}">Add</a>
-      <a href="/settings" class="{{ 'on' if nav == 'settings' }}">Settings</a>
-      <a href="/logs" class="{{ 'on' if nav == 'logs' }}">Logs</a>
+      <ul id="navMenu">
+        {% for group, items in menu.items() %}
+        <li class="menu-group {{ 'current' if nav in items | map(attribute=2) | list }}">
+          <a class="group-title">{{ group }} <span class="caret">▼</span></a>
+          <ul class="dropdown">
+            {% for href, label, key in items %}
+            <li><a href="{{ href }}" class="{{ 'on' if nav == key }}"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icons[label] }}"/></svg>{{ label }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+        {% endfor %}
+      </ul>
     </nav>
+    <div class="header-controls">
+      <a class="status-chip" href="/" id="engineChip" title="Mount engine">
+        <span class="dot" id="engineDot"></span><span class="label" id="engineLabel">Engine</span>
+      </a>
+    </div>
     {% endif %}
   </header>
-  <main>{% block content %}{% endblock %}</main>
+  <main class="container">{% block content %}{% endblock %}</main>
   <script src="/static/app.js"></script>
 </body>
 </html>

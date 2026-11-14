@@ -1,24 +1,31 @@
 {% extends "base.html" %}
 {% import "_forms.html" as f %}
 {% block content %}
-<h1>Settings</h1>
+<div class="head"><h1>Settings</h1></div>
 {% if saved %}<div class="notice ok">Saved.</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+<div class="tabs" role="tablist">
+  {% for key, label in [('required', 'Required'), ('downloads', 'Downloads'), ('indexers', 'Indexers'), ('library', 'Library & Quality'), ('lists', 'Lists'), ('other', 'Other')] %}
+  <button type="button" data-tab="{{ key }}" class="{{ 'on' if loop.first }}">{{ label }}</button>
+  {% endfor %}
+</div>
 <form method="post" class="settings">
-  {{ f.metadata(c) }}
-  {{ f.downloads(c, debrids) }}
-  {{ f.indexers(c, indexer_types) }}
-  {{ f.library(c, presets) }}
-  {{ f.sources(c, source_types) }}
-  <fieldset>
-    <legend>Other</legend>
-    <div class="row">
-      <label class="narrow">Upgrade window (days) <input name="upgrade_days" type="number" value="{{ c.upgrade_days }}"></label>
-      <label class="grow">Web password <span class="opt">empty = no login</span>
-        <input name="web_password" type="password" value="{{ c.web_password }}" autocomplete="new-password"></label>
-    </div>
-    <p class="hint">For this many days after something arrives, it's checked daily for a clearly better release.</p>
-  </fieldset>
-  <div class="sticky-save"><button class="btn primary">Save</button></div>
+  <div class="tab on" data-tab="required">{{ f.metadata(c) }}</div>
+  <div class="tab" data-tab="downloads">{{ f.downloads(c, debrids) }}</div>
+  <div class="tab" data-tab="indexers">{{ f.indexers(c, indexer_types) }}</div>
+  <div class="tab" data-tab="library">{{ f.library(c, presets) }}</div>
+  <div class="tab" data-tab="lists">{{ f.sources(c, source_types) }}</div>
+  <div class="tab" data-tab="other">
+    <fieldset>
+      <legend>Other</legend>
+      <div class="row">
+        <label class="narrow">Upgrade window (days) <input name="upgrade_days" type="number" value="{{ c.upgrade_days }}"></label>
+        <label class="grow">Web password <span class="opt">empty = no login</span>
+          <input name="web_password" type="password" value="{{ c.web_password }}" autocomplete="new-password"></label>
+      </div>
+      <p class="hint">For this many days after something arrives, it's checked daily for a clearly better release.</p>
+    </fieldset>
+  </div>
+  <div class="sticky-save"><button class="btn primary">Save settings</button></div>
 </form>
 {% endblock %}

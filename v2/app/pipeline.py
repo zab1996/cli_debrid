@@ -54,6 +54,10 @@ def register(worker: Worker, db: DB) -> None:
     async def upgrade_sweep() -> None:
         await upgrades.sweep(db)
 
+    @worker.every(10 * MINUTE)
+    async def backfill_posters() -> None:
+        await catalog.backfill_posters(db)
+
     @worker.every(DAY)
     async def refresh_metadata() -> None:
         await catalog.refresh_all_shows(db)

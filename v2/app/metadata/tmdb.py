@@ -94,6 +94,7 @@ async def movie(db: DB, tmdb_id: int) -> dict:
             "year": _year(m.get("release_date")),
             "imdb_id": m.get("imdb_id") or (m.get("external_ids") or {}).get("imdb_id"),
             "runtime": m.get("runtime") or 0,
+            "poster": f"{IMAGE}{m['poster_path']}" if m.get("poster_path") else None,
             "release_date": home_release_date(m.get("release_dates") or {}, m.get("release_date")),
         }
     return await cached(db, f"tmdb:movie:{tmdb_id}", DAY, fetch)
@@ -124,6 +125,7 @@ async def show(db: DB, tmdb_id: int) -> dict:
             "imdb_id": ext.get("imdb_id"),
             "tvdb_id": ext.get("tvdb_id"),
             "status": s.get("status", ""),
+            "poster": f"{IMAGE}{s['poster_path']}" if s.get("poster_path") else None,
             "is_anime": 16 in [g.get("id") for g in s.get("genres", [])]
                         and s.get("original_language") == "ja",
             "aliases": aliases[:20],

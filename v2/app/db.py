@@ -134,10 +134,23 @@ class DB:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.execute(
                 "INSERT OR IGNORE INTO kv(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
+
+    # Columns added after the first release: (table, column, type).
+    ADDED_COLUMNS = [
+        ("items", "poster", "TEXT"),
+        ("shows", "poster", "TEXT"),
+    ]
+
+    def _migrate(self) -> None:
+        for table, col, typ in self.ADDED_COLUMNS:
+            have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if col not in have:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
@@ -166,7 +179,7 @@ class DB:
                  release_date: str | None = None, source: str | None = None,
                  tvdb_id: int | None = None, imdb_id: str | None = None,
                  absolute: int | None = None, state: State = State.WANTED,
-                 next_attempt_at: float | None = None) -> int | None:
+                 next_attempt_at: float | None = None, poster: str | None = None) -> int | None:
         """Insert an item. Returns its id, or None if it already exists."""
         now = time.time()
         with self.tx() as c:
@@ -179,10 +192,10 @@ class DB:
                 return None
             cur = c.execute(
                 "INSERT INTO items(kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode,"
-                " absolute, state, release_date, next_attempt_at, source, added_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " absolute, state, release_date, next_attempt_at, source, added_at, updated_at, poster)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode, absolute,
-                 state.value, release_date, next_attempt_at, source, now, now),
+                 state.value, release_date, next_attempt_at, source, now, now, poster),
             )
             return cur.lastrowid
 

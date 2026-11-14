@@ -2,12 +2,20 @@
 {% block content %}
 <div class="head">
   <h1>Logs</h1>
-  <form method="get" class="row">
+  <form method="get" class="filters" style="margin:0">
+    <input id="logFilter" placeholder="Filter lines" style="width:220px">
     <select name="lines" onchange="this.form.submit()">
       {% for n in (300, 1000, 5000) %}<option value="{{ n }}" {{ 'selected' if n == lines }}>Last {{ n }} lines</option>{% endfor %}
     </select>
   </form>
 </div>
 <pre class="log" id="log">{{ text }}</pre>
-<script>const l = document.getElementById('log'); l.scrollTop = l.scrollHeight;</script>
+<script>
+  const l = document.getElementById('log'); const all = l.textContent; l.scrollTop = l.scrollHeight;
+  document.getElementById('logFilter').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    l.textContent = q ? all.split('\n').filter(x => x.toLowerCase().includes(q)).join('\n') : all;
+    l.scrollTop = l.scrollHeight;
+  });
+</script>
 {% endblock %}

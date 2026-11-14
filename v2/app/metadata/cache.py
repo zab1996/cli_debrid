@@ -34,6 +34,11 @@ async def cached(db: DB, key: str, ttl: float, fetch: Callable[[], Awaitable[Any
     return value
 
 
+def drop(db: DB, key: str) -> None:
+    with db.tx() as c:
+        c.execute("DELETE FROM meta_cache WHERE key=?", (key,))
+
+
 def purge_expired(db: DB) -> None:
     with db.tx() as c:
         c.execute("DELETE FROM meta_cache WHERE expires_at < ?", (time.time(),))

@@ -53,6 +53,16 @@ def _ago(ts: float | None) -> str:
 
 
 templates.env.filters["ago"] = _ago
+templates.env.filters["ymd"] = lambda ts: time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else ""
+
+
+def _duration(seconds: float) -> str:
+    s = int(seconds or 0)
+    d, h, m = s // 86400, s % 86400 // 3600, s % 3600 // 60
+    return f"{d}d {h}h {m}m" if d else f"{h}h {m}m"
+
+
+templates.env.filters["duration"] = _duration
 
 
 def render(request: Request, name: str, **ctx):
@@ -95,9 +105,56 @@ async def home(request: Request):
         return back("/setup")
     db = request.app.state.db
     problems = [f"{s.name}: {s.last_error}" for s in request.app.state.worker.steps if s.last_error]
-    return render(request, "home.html", counts=db.state_counts(), states=[s.value for s in State],
-                  events=db.recent_events(40), engine=await engine_summary(request),
-                  problems=problems)
+    today = time.strftime("%Y-%m-%d")
+    week_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 7 * 86400))
+    soon = time.strftime("%Y-%m-%d", time.localtime(time.time() + 14 * 86400))
+    recent_movies = db.query(
+        "SELECT id, title, year, poster, release_name, done_at FROM items WHERE kind='movie'"
+        " AND state='Done' ORDER BY done_at DESC LIMIT 12")
+    recent_shows = db.query(
+        "SELECT s.tmdb_id, s.title, s.year, s.poster, MAX(i.done_at) last_done, COUNT(i.id) eps,"
+        " (SELECT season || 'x' || episode FROM items j WHERE j.kind='episode' AND j.tmdb_id=s.tmdb_id"
+        "  AND j.state='Done' ORDER BY j.done_at DESC LIMIT 1) latest"
+        " FROM shows s JOIN items i ON i.kind='episode' AND i.tmdb_id=s.tmdb_id AND i.state='Done'"
+        " GROUP BY s.tmdb_id ORDER BY last_done DESC LIMIT 12")
+    aired = db.query(
+        "SELECT id, title, season, episode, release_date, state FROM items WHERE kind='episode'"
+        " AND release_date BETWEEN ? AND ? ORDER BY release_date DESC, title LIMIT 60",
+        (week_ago, today))
+    upcoming = db.query(
+        "SELECT id, kind, title, year, season, episode, release_date FROM items"
+        " WHERE release_date > ? AND release_date <= ? ORDER BY release_date, title LIMIT 60",
+        (today, soon))
+    library = {
+        "movies": db.query("SELECT COUNT(*) n FROM items WHERE kind='movie' AND state='Done'")[0]["n"],
+        "shows": db.query("SELECT COUNT(*) n FROM shows")[0]["n"],
+        "episodes": db.query("SELECT COUNT(*) n FROM items WHERE kind='episode' AND state='Done'")[0]["n"],
+    }
+    return render(request, "home.html", counts=db.state_counts(), events=db.recent_events(40),
+                  engine=await engine_summary(request), problems=problems,
+                  recent_movies=recent_movies, recent_shows=recent_shows, aired=aired,
+                  upcoming=upcoming, library=library,
+                  uptime=time.time() - request.app.state.started_at)
+
+
+QUEUE_ORDER = [State.SEARCHING, State.DOWNLOADING, State.WANTED, State.WAITING, State.FAILED,
+               State.DONE]
+
+
+@router.get("/queues", response_class=HTMLResponse)
+def queues(request: Request):
+    db = request.app.state.db
+    sections = []
+    for st in QUEUE_ORDER:
+        order = "done_at DESC" if st is State.DONE else (
+            "next_attempt_at" if st in (State.WAITING, State.FAILED) else "updated_at DESC")
+        rows = db.query(
+            "SELECT id, kind, title, year, season, episode, release_date, release_name, attempts,"
+            " next_attempt_at, added_at, updated_at, done_at, mode, source FROM items"
+            f" WHERE state=? ORDER BY {order} LIMIT 300", (st.value,))
+        total = db.query("SELECT COUNT(*) n FROM items WHERE state=?", (st.value,))[0]["n"]
+        sections.append({"name": st.value, "items": rows, "total": total})
+    return render(request, "queues.html", sections=sections)
 
 
 # ------------------------------------------------------------------ library
@@ -113,13 +170,13 @@ def library(request: Request, state: str = "", q: str = ""):
     if q:
         where.append("title LIKE ?")
         params.append(f"%{q}%")
-    movies = db.query(f"SELECT id, title, year, state, release_name, next_attempt_at FROM items"
+    movies = db.query(f"SELECT id, title, year, state, release_name, next_attempt_at, poster FROM items"
                       f" WHERE {' AND '.join(where)} ORDER BY title LIMIT 500", tuple(params))
     show_where, show_params = "", []
     if q:
         show_where, show_params = "WHERE s.title LIKE ?", [f"%{q}%"]
     shows = db.query(
-        "SELECT s.tmdb_id, s.title, s.year, COUNT(i.id) total,"
+        "SELECT s.tmdb_id, s.title, s.year, s.poster, COUNT(i.id) total,"
         " SUM(i.state='Done') done, SUM(i.state IN ('Wanted','Searching','Downloading')) active,"
         " SUM(i.state='Failed') failed FROM shows s LEFT JOIN items i"
         " ON i.kind='episode' AND i.tmdb_id=s.tmdb_id " + show_where +
@@ -157,7 +214,13 @@ def item(request: Request, item_id: int):
                      " ORDER BY at DESC", (item_id,))
     events = db.query("SELECT at, message FROM events WHERE item_id=? ORDER BY id DESC LIMIT 30",
                       (item_id,))
-    return render(request, "item.html", it=it, tried=tried, events=events, nav="library")
+    if it.kind == "movie":
+        poster = db.query("SELECT poster FROM items WHERE id=?", (item_id,))[0]["poster"]
+    else:
+        rows = db.query("SELECT poster FROM shows WHERE tmdb_id=?", (it.tmdb_id,))
+        poster = rows[0]["poster"] if rows else None
+    return render(request, "item.html", it=it, tried=tried, events=events, poster=poster,
+                  nav="library")
 
 
 @router.post("/item/{item_id}/{action}")

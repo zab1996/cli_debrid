@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from . import config
 from .db import DB
-from .metadata import tmdb, tvdb
+from .metadata import cache, tmdb, tvdb
 from .models import State
 
 log = logging.getLogger("clid2.catalog")
@@ -50,7 +50,7 @@ async def add_movie(db: DB, tmdb_id: int, source: str = "manual") -> int | None:
     state, nxt = initial_state(m["release_date"], "movie")
     item_id = db.add_item(kind="movie", tmdb_id=tmdb_id, imdb_id=m["imdb_id"], title=m["title"],
                           year=m["year"], release_date=m["release_date"], source=source,
-                          state=state, next_attempt_at=nxt)
+                          state=state, next_attempt_at=nxt, poster=m.get("poster"))
     if item_id:
         db.log_event(f"Added movie {m['title']} ({m['year']})", item_id)
     return item_id
@@ -78,10 +78,11 @@ async def add_show(db: DB, tmdb_id: int, seasons: list[int] | None = None,
         if row is None:
             c.execute(
                 "INSERT INTO shows(tmdb_id, tvdb_id, imdb_id, title, original_title, year, aliases,"
-                " is_anime, status, seasons, source, added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " is_anime, status, seasons, source, added_at, poster)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (tmdb_id, info["tvdb_id"], info["imdb_id"], info["title"], info["original_title"],
                  info["year"], json.dumps(info["aliases"]), int(info["is_anime"]), info["status"],
-                 json.dumps(seasons) if seasons else None, source, now),
+                 json.dumps(seasons) if seasons else None, source, now, info.get("poster")),
             )
         elif row["seasons"] is not None:
             # Widen an existing partial request.
@@ -143,6 +144,32 @@ def _refresh_waiting_episode(db: DB, tmdb_id: int, season: int, e: dict) -> None
             return
     if fields:
         db.set_state(r["id"], State(r["state"]), **fields)
+
+
+async def backfill_posters(db: DB, limit: int = 25) -> None:
+    """Fill in posters for titles added before posters were stored."""
+    for r in db.query("SELECT DISTINCT tmdb_id FROM items WHERE kind='movie' AND poster IS NULL"
+                      " LIMIT ?", (limit,)):
+        try:
+            m = await tmdb.movie(db, r["tmdb_id"])
+            if "poster" not in m:  # cached before posters were stored
+                cache.drop(db, f"tmdb:movie:{r['tmdb_id']}")
+                m = await tmdb.movie(db, r["tmdb_id"])
+        except Exception:
+            continue
+        with db.tx() as c:
+            c.execute("UPDATE items SET poster=? WHERE kind='movie' AND tmdb_id=?",
+                      (m.get("poster") or "", r["tmdb_id"]))
+    for r in db.query("SELECT tmdb_id FROM shows WHERE poster IS NULL LIMIT ?", (limit,)):
+        try:
+            info = await tmdb.show(db, r["tmdb_id"])
+            if "poster" not in info:
+                cache.drop(db, f"tmdb:show:{r['tmdb_id']}")
+                info = await tmdb.show(db, r["tmdb_id"])
+        except Exception:
+            continue
+        with db.tx() as c:
+            c.execute("UPDATE shows SET poster=? WHERE tmdb_id=?", (info.get("poster") or "", r["tmdb_id"]))
 
 
 async def refresh_all_shows(db: DB) -> None:

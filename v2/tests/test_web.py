@@ -51,6 +51,8 @@ def test_pages_render(client):
     assert "Season 1" in client.get("/show/1396").text
     assert client.get("/add").status_code == 200
     assert client.get("/logs").status_code == 200
+    q = client.get("/queues")
+    assert q.status_code == 200 and "Breaking Bad" in q.text and "Failed" in q.text
     assert client.get("/settings").status_code == 200
 
     client.post(f"/item/{eid}/retry")

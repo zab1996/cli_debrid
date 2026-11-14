@@ -8,12 +8,12 @@
 <fieldset>
   <legend>Metadata</legend>
   <label>TMDB API key <span class="req">required</span>
-    <input name="tmdb_api_key" value="{{ c.tmdb_api_key }}" autocomplete="off">
+    <input type="password" class="secret" name="tmdb_api_key" value="{{ c.tmdb_api_key }}" autocomplete="off">
   </label>
   <p class="hint">Free at themoviedb.org → Settings → API. Either the short key or the long read token works.</p>
   {{ test_button("tmdb") }}
   <label>TVDB API key <span class="opt">optional, recommended for shows and anime</span>
-    <input name="tvdb_api_key" value="{{ c.tvdb_api_key }}" autocomplete="off">
+    <input type="password" class="secret" name="tvdb_api_key" value="{{ c.tvdb_api_key }}" autocomplete="off">
   </label>
   {{ test_button("tvdb") }}
 </fieldset>
@@ -28,7 +28,7 @@
         {% for k, v in debrids.items() %}<option value="{{ k }}" {{ 'selected' if c.debrid.provider == k }}>{{ v }}</option>{% endfor %}
       </select>
     </label>
-    <label class="grow">API key <input name="debrid.api_key" value="{{ c.debrid.api_key }}" autocomplete="off"></label>
+    <label class="grow">API key <input type="password" class="secret" name="debrid.api_key" value="{{ c.debrid.api_key }}" autocomplete="off"></label>
   </div>
   {{ test_button("debrid") }}
 </fieldset>
@@ -72,7 +72,7 @@
       </select>
     </label>
     <label class="grow">URL <input name="indexers-{{ i }}-url" value="{{ x.url if x else '' }}" placeholder="http://prowlarr:9696"></label>
-    <label class="grow">API key <input name="indexers-{{ i }}-api_key" value="{{ x.api_key if x else '' }}" autocomplete="off"></label>
+    <label class="grow">API key <input type="password" class="secret" name="indexers-{{ i }}-api_key" value="{{ x.api_key if x else '' }}" autocomplete="off"></label>
     <label class="check"><input type="checkbox" name="indexers-{{ i }}-enabled" {{ 'checked' if (not x or x.enabled) }}> On</label>
     {{ test_button("indexers-" ~ i) }}
   </div>
@@ -98,7 +98,7 @@
   <legend>Plex <span class="opt">optional</span></legend>
   <div class="row">
     <label class="grow">URL <input name="plex.url" value="{{ c.plex.url }}" placeholder="http://plex:32400"></label>
-    <label class="grow">Token <input name="plex.token" value="{{ c.plex.token }}" autocomplete="off"></label>
+    <label class="grow">Token <input type="password" class="secret" name="plex.token" value="{{ c.plex.token }}" autocomplete="off"></label>
   </div>
   {{ test_button("plex") }}
   <p class="hint">Used to scan new files in, read your watchlist, and replace files people report with "Report issue".</p>
@@ -141,8 +141,8 @@
   </div>
   {% endfor %}
   <div class="row">
-    <label class="grow">Trakt client id <span class="opt">for Trakt lists</span><input name="trakt_client_id" value="{{ c.trakt_client_id }}" autocomplete="off"></label>
-    <label class="grow">MDBList API key <span class="opt">optional</span><input name="mdblist_api_key" value="{{ c.mdblist_api_key }}" autocomplete="off"></label>
+    <label class="grow">Trakt client id <span class="opt">for Trakt lists</span><input type="password" class="secret" name="trakt_client_id" value="{{ c.trakt_client_id }}" autocomplete="off"></label>
+    <label class="grow">MDBList API key <span class="opt">optional</span><input type="password" class="secret" name="mdblist_api_key" value="{{ c.mdblist_api_key }}" autocomplete="off"></label>
   </div>
 </fieldset>
 {% endmacro %}

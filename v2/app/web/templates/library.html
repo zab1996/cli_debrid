@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<div class="head"><h1>Library</h1></div>
 <form class="filters" method="get">
   <input name="q" value="{{ q }}" placeholder="Search your library">
   <select name="state" onchange="this.form.submit()">
@@ -9,35 +10,42 @@
   <button class="btn">Filter</button>
 </form>
 
-<h2>Shows <span class="muted">{{ shows | length }}</span></h2>
-{% if shows %}
-<table class="list">
-  <tr><th>Title</th><th>Episodes</th><th></th></tr>
-  {% for s in shows %}
-  <tr>
-    <td><a href="/show/{{ s.tmdb_id }}">{{ s.title }}</a> <span class="muted">{{ s.year or '' }}</span></td>
-    <td>{{ s.done or 0 }} / {{ s.total or 0 }}</td>
-    <td>
-      {% if s.active %}<span class="tag Downloading">{{ s.active }} in progress</span>{% endif %}
-      {% if s.failed %}<span class="tag Failed">{{ s.failed }} failed</span>{% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}<p class="muted">None.</p>{% endif %}
+<div class="box">
+  <h3>Shows <span class="count">{{ shows | length }}</span></h3>
+  {% if shows %}
+  <table class="list">
+    <tr><th></th><th>Title</th><th>Episodes</th><th class="hide-sm">Status</th></tr>
+    {% for s in shows %}
+    <tr>
+      <td style="width:50px">{% if s.poster %}<img class="thumb" src="{{ s.poster }}" alt="" loading="lazy">{% else %}<div class="thumb"></div>{% endif %}</td>
+      <td><a href="/show/{{ s.tmdb_id }}">{{ s.title }}</a> <span class="muted">{{ s.year or '' }}</span></td>
+      <td class="mono">{{ s.done or 0 }} / {{ s.total or 0 }}</td>
+      <td class="hide-sm">
+        {% if s.active %}<span class="tag Downloading">{{ s.active }} in progress</span>{% endif %}
+        {% if s.failed %}<span class="tag Failed">{{ s.failed }} failed</span>{% endif %}
+        {% if not s.active and not s.failed and s.done == s.total and s.total %}<span class="tag Done">complete</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty">None.</div>{% endif %}
+</div>
 
-<h2>Movies <span class="muted">{{ movies | length }}</span></h2>
-{% if movies %}
-<table class="list">
-  <tr><th>Title</th><th>State</th><th class="hide-sm">Release</th></tr>
-  {% for m in movies %}
-  <tr>
-    <td><a href="/item/{{ m.id }}">{{ m.title }}</a> <span class="muted">{{ m.year or '' }}</span></td>
-    <td><span class="tag {{ m.state }}">{{ m.state }}</span>
-      {% if m.state == 'Waiting' and m.next_attempt_at %}<span class="muted small">{{ m.next_attempt_at | ago }}</span>{% endif %}</td>
-    <td class="hide-sm small muted">{{ m.release_name or '' }}</td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}<p class="muted">None.</p>{% endif %}
+<div class="box">
+  <h3>Movies <span class="count">{{ movies | length }}</span></h3>
+  {% if movies %}
+  <table class="list">
+    <tr><th></th><th>Title</th><th>State</th><th class="hide-sm">Release</th></tr>
+    {% for m in movies %}
+    <tr>
+      <td style="width:50px">{% if m.poster %}<img class="thumb" src="{{ m.poster }}" alt="" loading="lazy">{% else %}<div class="thumb"></div>{% endif %}</td>
+      <td><a href="/item/{{ m.id }}">{{ m.title }}</a> <span class="muted">{{ m.year or '' }}</span></td>
+      <td><span class="tag {{ m.state }}">{{ m.state }}</span>
+        {% if m.state == 'Waiting' and m.next_attempt_at %}<span class="muted small">{{ m.next_attempt_at | ago }}</span>{% endif %}</td>
+      <td class="hide-sm mono">{{ m.release_name or '' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty">None.</div>{% endif %}
+</div>
 {% endblock %}

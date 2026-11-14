@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head"><h1>Queues</h1><span class="muted small">Refreshes every 15s</span></div>
+{% for q in sections %}
+<details class="queue" id="{{ q.name }}" data-queue="{{ q.name }}" {{ 'open' if q.name in ('Searching', 'Downloading', 'Wanted') and q.total }}>
+  <summary>{{ q.name }} <span class="qcount">{{ q.total }}</span></summary>
+  {% for it in q['items'] %}
+  <div class="qitem">
+    <a class="ttl" href="/item/{{ it.id }}">{{ it.title }}{% if it.year %} ({{ it.year }}){% endif %}{% if it.kind == 'episode' %} S{{ '%02d' % it.season }}E{{ '%02d' % it.episode }}{% endif %}</a>
+    {% if it.mode %}<span class="sep">-</span><span class="tag Downloading">{{ it.mode }}</span>{% endif %}
+    {% if it.release_date %}<span class="sep">-</span><span class="lbl">Release Date:</span> {{ it.release_date }}{% endif %}
+    {% if q.name in ('Waiting', 'Failed') and it.next_attempt_at %}<span class="sep">-</span><span class="lbl">Next Try:</span> {{ it.next_attempt_at | ago }}{% endif %}
+    {% if it.attempts %}<span class="sep">-</span><span class="lbl">Searches:</span> {{ it.attempts }}{% endif %}
+    {% if q.name == 'Done' %}<span class="sep">-</span><span class="lbl">Collected:</span> {{ it.done_at | ago }}
+    {% else %}<span class="sep">-</span><span class="lbl">Time Added:</span> {{ it.added_at | ymd }}{% endif %}
+    {% if it.source and it.source != 'manual' %}<span class="sep">-</span><span class="lbl small"><i>{{ it.source }}</i></span>{% endif %}
+    {% if it.release_name and q.name in ('Downloading', 'Done') %}<div class="rel">{{ it.release_name }}</div>{% endif %}
+  </div>
+  {% else %}
+  <div class="empty">Empty.</div>
+  {% endfor %}
+  {% if q.total > q['items'] | length %}<div class="empty">… and {{ q.total - q['items'] | length }} more</div>{% endif %}
+</details>
+{% endfor %}
+<script>
+  // Remember which queues are open (like v1) and refresh while something is moving.
+  document.querySelectorAll('details.queue').forEach(d => {
+    try { const s = localStorage.getItem('q_' + d.dataset.queue); if (s) d.open = s === 'open'; } catch (e) {}
+    d.addEventListener('toggle', () => { try { localStorage.setItem('q_' + d.dataset.queue, d.open ? 'open' : 'closed'); } catch (e) {} });
+  });
+  setTimeout(() => location.reload(), 15000);
+</script>
+{% endblock %}

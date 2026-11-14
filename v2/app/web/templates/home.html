@@ -1,39 +1,91 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="status">
+<div class="topbar">
+  <span class="tb-pill">Library: <span class="tb-val">{{ library.movies }} movies · {{ library.shows }} shows · {{ library.episodes }} eps</span></span>
+  <span class="tb-sep"></span>
   {% if not engine.available %}
-    <div class="pill warn">Mount engine not installed (dev mode)</div>
-  {% elif not engine.running %}
-    <div class="pill bad">Mount engine stopped{% if engine.restarts %} · restarted {{ engine.restarts }}×{% endif %}</div>
-  {% elif not engine.reachable %}
-    <div class="pill warn">Mount engine starting…</div>
+    <span class="tb-pill"><span class="dot warn"></span>Mount: <span class="tb-val">engine not installed</span></span>
+  {% elif not engine.running or not engine.reachable %}
+    <span class="tb-pill"><span class="dot bad"></span>Mount: <span class="tb-val">engine starting…</span></span>
   {% else %}
-    <div class="pill {{ 'ok' if engine.mounted else 'warn' }}">Mount {{ 'ready' if engine.mounted else 'not mounted yet' }} · {{ engine.mount_path }}</div>
-    {% for p in engine.providers or [] %}<div class="pill ok">{{ p }}</div>{% endfor %}
-    {% if engine.usenet %}<div class="pill ok">usenet</div>{% endif %}
+    <span class="tb-pill"><span class="dot {{ 'ok' if engine.mounted else 'warn' }}"></span>Mount: <span class="tb-val">{{ 'ready' if engine.mounted else 'not mounted' }}</span></span>
+    {% for p in engine.providers or [] %}<span class="tb-pill"><span class="dot ok"></span><span class="tb-val">{{ p }}</span></span>{% endfor %}
+    {% if engine.usenet %}<span class="tb-pill"><span class="dot ok"></span><span class="tb-val">Usenet</span></span>{% endif %}
   {% endif %}
-</section>
-
-{% if problems %}
-<div class="notice bad">
-  {% for p in problems %}<div>{{ p }}</div>{% endfor %}
+  <span class="tb-sep"></span>
+  {% for s in ('Searching', 'Downloading', 'Wanted', 'Waiting', 'Failed') %}
+    <a class="tb-pill" href="/queues#{{ s }}">{{ s }}: <span class="tb-val">{{ counts[s] }}</span></a>
+  {% endfor %}
+  <span class="tb-sep"></span>
+  <span class="tb-pill">Uptime: <span class="tb-val">{{ uptime | duration }}</span></span>
 </div>
-{% endif %}
 
-<section class="counts">
-  {% for s in states %}
-  <a class="count" href="/library?state={{ s }}"><div class="n">{{ counts[s] }}</div><div class="label">{{ s }}</div></a>
-  {% endfor %}
-</section>
+{% if problems %}<div class="notice bad">{% for p in problems %}<div>{{ p }}</div>{% endfor %}</div>{% endif %}
 
-<h2>Recent activity</h2>
-{% if events %}
-<ul class="events">
-  {% for e in events %}
-  <li><span class="when">{{ e.at | ago }}</span>{% if e.item_id %}<a href="/item/{{ e.item_id }}">{{ e.message }}</a>{% else %}{{ e.message }}{% endif %}</li>
-  {% endfor %}
-</ul>
-{% else %}
-<p class="muted">Nothing yet. <a href="/add">Add something</a> or add a list in <a href="/settings">Settings</a>.</p>
-{% endif %}
+<div class="grid3">
+  <div class="box">
+    <h3>Recently Aired <span class="count">7 days</span></h3>
+    {% if aired %}
+    <ul class="rows">
+      {% for e in aired %}
+      <li><a class="ttl {{ '' if e.state == 'Done' else 'missing' }}" href="/item/{{ e.id }}">{{ e.title }} S{{ '%02d' % e.season }}E{{ '%02d' % e.episode }}</a>
+        <span class="when">{% if e.state != 'Done' %}<span class="tag {{ e.state }}">{{ e.state }}</span> {% endif %}{{ e.release_date }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">No episodes aired this week.</div>{% endif %}
+  </div>
+  <div class="box">
+    <h3>Upcoming <span class="count">14 days</span></h3>
+    {% if upcoming %}
+    <ul class="rows">
+      {% for u in upcoming %}
+      <li><a class="ttl" href="/item/{{ u.id }}">{{ u.title }}{% if u.kind == 'episode' %} S{{ '%02d' % u.season }}E{{ '%02d' % u.episode }}{% else %} ({{ u.year }}){% endif %}</a>
+        <span class="when">{{ u.release_date }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">Nothing scheduled.</div>{% endif %}
+  </div>
+  <div class="box">
+    <h3>Activity <a class="link" href="/logs">Logs →</a></h3>
+    {% if events %}
+    <ul class="rows">
+      {% for e in events %}
+      <li>{% if e.item_id %}<a class="ttl" href="/item/{{ e.item_id }}" title="{{ e.message }}">{{ e.message }}</a>{% else %}<span class="ttl" title="{{ e.message }}">{{ e.message }}</span>{% endif %}
+        <span class="when">{{ e.at | ago }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">Nothing yet. <a href="/add">Add something</a>.</div>{% endif %}
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="box">
+    <h3>Recently Added Movies <a class="link" href="/library">Library →</a></h3>
+    {% if recent_movies %}
+    <div class="posters">
+      {% for m in recent_movies %}
+      <a class="pcard" href="/item/{{ m.id }}">
+        {% if m.poster %}<img src="{{ m.poster }}" alt="" loading="lazy">{% else %}<div class="noimg">{{ m.title }}</div>{% endif %}
+        <div class="hover"><span class="t">{{ m.title }} ({{ m.year }})</span><span class="muted">{{ m.done_at | ago }}</span>
+          <span class="f">{{ m.release_name or '' }}</span></div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}<div class="empty">No movies yet.</div>{% endif %}
+  </div>
+  <div class="box">
+    <h3>Recently Added Shows <a class="link" href="/library">Library →</a></h3>
+    {% if recent_shows %}
+    <div class="posters">
+      {% for s in recent_shows %}
+      <a class="pcard" href="/show/{{ s.tmdb_id }}">
+        {% if s.poster %}<img src="{{ s.poster }}" alt="" loading="lazy">{% else %}<div class="noimg">{{ s.title }}</div>{% endif %}
+        <div class="hover"><span class="t">{{ s.title }}</span><span class="muted">{{ s.eps }} episodes · latest {{ s.latest }}</span>
+          <span class="muted">{{ s.last_done | ago }}</span></div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}<div class="empty">No shows yet.</div>{% endif %}
+  </div>
+</div>
 {% endblock %}

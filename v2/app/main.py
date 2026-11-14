@@ -7,6 +7,7 @@ import logging
 import logging.handlers
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -72,6 +73,7 @@ def create_app(db_path: str | None = None, start_worker: bool = True,
         app.state.db = db
         app.state.worker = worker
         app.state.engine = engine
+        app.state.started_at = time.time()
         if start_engine:
             engine.start()
         task = asyncio.create_task(worker.run_forever()) if start_worker else None
