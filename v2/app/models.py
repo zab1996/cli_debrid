@@ -56,6 +56,11 @@ class Item:
     source: str | None = None
 
     @property
+    def tag(self) -> str:
+        """Prefix for log lines so one item's whole history can be grepped."""
+        return f"[item {self.id} {self.label}]"
+
+    @property
     def label(self) -> str:
         if self.kind == "episode":
             return f"{self.title} S{self.season:02d}E{self.episode:02d}"

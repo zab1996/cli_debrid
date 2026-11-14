@@ -15,6 +15,7 @@ PRESET_RES = {
     "4k": {"2160p"},
     "4k_1080p": {"2160p", "1080p"},
 }
+NZB_MAX_EPISODES = 2   # double episodes are fine; anything bigger is a pack
 TRASH_QUALITY = {"CAM", "TeleSync", "TeleCine", "SCR", "Screener", "TS", "TC"}
 
 
@@ -107,6 +108,15 @@ def check(r: Release, q: Query, prof: QualityConfig, tried: set[str] | None = No
         elif q.kind == "season" and eps and len(eps) < q.episode_count:
             # A pack must not be a single episode or a partial range.
             return "partial pack"
+
+    # --- no usenet season packs ----------------------------------------------
+    # NZB packs are slow to process and stream badly; usenet must be one
+    # episode per release (a double episode like E01E02 is fine). Packs are
+    # still allowed for debrid torrents.
+    if r.protocol == "nzb" and q.kind != "movie":
+        eps = p["episodes"]
+        if q.kind == "season" or not eps or len(eps) > NZB_MAX_EPISODES:
+            return "usenet pack"
 
     # --- quality ------------------------------------------------------------
     if p.get("trash") or p.get("quality") in TRASH_QUALITY:

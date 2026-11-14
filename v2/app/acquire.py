@@ -90,13 +90,16 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
         if not results or (cur and cur[1] is not None and results[0].score < cur[1] + UPGRADE_MARGIN):
             return False
         results = results[:1]  # only the clearly better one
-    for r in results[:CANDIDATES]:
+    tag = search.job_tag(job)
+    for n, r in enumerate(results[:CANDIDATES], 1):
+        log.info("%s trying #%d (%s, %.1fGB, score %.1f, %s): %s", tag, n, r.protocol, r.size_gb,
+                 r.score, r.indexer, r.title)
         try:
             engine_id = await _submit(r)
         except engine.EngineDown:
             raise  # not the release's fault; caller puts the items back
         except Exception as e:
-            log.info("%s: %s rejected: %s", job.label, r.title, e)
+            log.info("%s   rejected: %s: %s", tag, type(e).__name__, e)
             for it in job.items:
                 db.record_release(it.id, r.key, r.title, r.score, "failed")
             continue
@@ -110,7 +113,10 @@ async def run_job(db: DB, job: search.Job, upgrade: bool = False) -> bool:
             db.set_state(it.id, State.DOWNLOADING, **fields)
         db.log_event(f"{'Upgrading' if upgrade else 'Grabbed'} {job.label}: {r.title}",
                      job.items[0].id if len(job.items) == 1 else None)
+        log.info("%s   accepted by engine as %s%s", tag, engine_id, " (upgrade)" if upgrade else "")
         return True
+    if results:
+        log.info("%s none of the top %d candidates were accepted", tag, min(len(results), CANDIDATES))
     if not upgrade:
         for it in job.items:
             _nothing_found(db, it)
@@ -127,9 +133,12 @@ def _nothing_found(db: DB, it: Item) -> None:
     if attempts >= MAX_EMPTY_SEARCHES:
         db.set_state(it.id, State.FAILED, attempts=attempts, next_attempt_at=None)
         db.log_event(f"Gave up on {it.label} after {attempts} searches", it.id)
+        log.warning("%s nothing usable after %d searches -> Failed (weekly retry)", it.tag, attempts)
     else:
-        db.set_state(it.id, State.WAITING, attempts=attempts,
-                     next_attempt_at=time.time() + next_backoff(attempts))
+        wait = next_backoff(attempts)
+        db.set_state(it.id, State.WAITING, attempts=attempts, next_attempt_at=time.time() + wait)
+        log.info("%s nothing usable (search %d/%d) -> Waiting %dh", it.tag, attempts,
+                 MAX_EMPTY_SEARCHES, wait // 3600)
 
 
 async def search_wanted(db: DB) -> None:
@@ -185,22 +194,27 @@ async def _finish(db: DB, items: list[Item], st: engine.EntryStatus) -> None:
         found = match.for_episodes(st.files, items)
     scan_dirs: set[str] = set()
     old_ids: set[str] = set()
+    log.info("[download %s] ready: %s (%d files, %d videos)", st.id, st.name, len(st.files),
+             len(match.videos(st.files)))
     for it in items:
         f = found.get(it.id)
         if not f:
+            log.warning("%s no matching file in %s; files: %s", it.tag, st.name,
+                        ", ".join(x.name for x in match.videos(st.files)[:8]) or "none")
             db.record_release(it.id, st.id, st.name, None, "failed")
             _back_to_search(db, it, f"{st.name} has no file for it")
             continue
         try:
             path = await _place(db, it, f.path)
         except OSError as e:
-            log.error("placing %s failed: %s", it.label, e)
+            log.error("%s placing %s failed: %s", it.tag, f.path, e)
             _back_to_search(db, it, f"could not create library link ({e})")
             continue
         if it.prev_engine_id:
             old_ids.add(it.prev_engine_id)
         db.set_state(it.id, State.DONE, file_path=path, done_at=time.time(), mode=None,
                      prev_engine_id=None, attempts=0, downloading_since=None)
+        log.info("%s Done: %s -> %s", it.tag, f.name, path)
         scan_dirs.add(str(symlink.folder_for(it, config.get().library))
                       if config.get().library.mode == "symlink" else path.rsplit("/", 1)[0])
     done = [it for it in items if it.id in found]
@@ -217,7 +231,8 @@ async def _finish(db: DB, items: list[Item], st: engine.EntryStatus) -> None:
         await engine.delete(st.id)
     for d in scan_dirs:
         try:
-            await plex.scan(d)
+            ok = await plex.scan(d)
+            log.info("Plex scan %s: %s", "requested" if ok else "skipped", d)
         except Exception as e:
             log.warning("Plex scan of %s failed: %s", d, e)
 
@@ -237,6 +252,7 @@ def _back_to_search(db: DB, it: Item, why: str) -> None:
 
 async def _fail(db: DB, items: list[Item], engine_id: str, why: str) -> None:
     for it in items:
+        log.warning("%s download %s failed: %s", it.tag, engine_id, why)
         if it.release_name:
             db.record_release(it.id, engine_id.lower(), it.release_name, None, "failed")
         _back_to_search(db, it, why)
@@ -266,6 +282,8 @@ async def check_downloads(db: DB) -> None:
             if now - since > VANISH_GRACE:
                 await _fail(db, items, engine_id, "download disappeared")
             continue
+        if st.status != "ready":
+            log.debug("[download %s] %s %.0f%%", engine_id, st.status, st.progress)
         if st.status == "ready":
             await _finish(db, items, st)
         elif st.status == "error":

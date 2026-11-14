@@ -41,6 +41,8 @@ async def resolve_ids(db: DB, kind: str, tmdb_id=None, imdb_id=None, tvdb_id=Non
         found = await tmdb.find_by_tvdb(db, int(tvdb_id))
     if found:
         return Request(found["kind"], found["tmdb_id"], title)
+    log.warning("could not match %r (%s; imdb %s, tvdb %s) to TMDB; skipped",
+                title, kind, imdb_id or "-", tvdb_id or "-")
     return None
 
 
@@ -63,15 +65,18 @@ async def sync_all(db: DB) -> None:
         if not s.enabled:
             continue
         key = source_key(s)
+        started = time.time()
         try:
             reqs = await fetch(db, s)
         except Exception as e:
-            log.warning("source %s failed: %s", key, e)
+            log.warning("[source %s] fetch failed: %s: %s", key, type(e).__name__, e)
+            db.log_event(f"List {key} failed: {e}")
             continue
-        added = 0
+        new = added = failed = 0
         for r in reqs:
             if not _is_new(db, key, r):
                 continue
+            new += 1
             try:
                 if r.kind == "movie":
                     added += bool(await catalog.add_movie(db, r.tmdb_id, source=key))
@@ -79,9 +84,11 @@ async def sync_all(db: DB) -> None:
                     await catalog.add_show(db, r.tmdb_id, source=key)
                     added += 1
             except Exception as e:
-                log.warning("adding %s %s from %s failed: %s", r.kind, r.tmdb_id, key, e)
+                failed += 1
+                log.warning("[source %s] adding %s %r (tmdb %s) failed: %s: %s; will retry next sync",
+                            key, r.kind, r.title, r.tmdb_id, type(e).__name__, e)
                 with db.tx() as c:  # retry next sync
                     c.execute("DELETE FROM requests WHERE source=? AND kind=? AND tmdb_id=?",
                               (key, r.kind, r.tmdb_id))
-        if added:
-            log.info("source %s: %d new", key, added)
+        log.info("[source %s] %d on list, %d new, %d added, %d failed (%.1fs)",
+                 key, len(reqs), new, added, failed, time.time() - started)

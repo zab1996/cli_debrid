@@ -120,6 +120,7 @@ a.tb-pill:hover { color: var(--text2); border-color: var(--accent); }
 .rows .when { font-family: var(--mono); font-size: 11px; color: var(--text2); white-space: nowrap; }
 .rows .ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .rows .ttl.missing { color: var(--text2); }
+.rows .when.today { color: var(--accent); font-weight: 600; }
 .empty { padding: 18px 14px; color: var(--text3); font-size: 13px; }
 
 /* poster cards */
@@ -260,3 +261,21 @@ pre.log { background: #0b0b0b; border: 1px solid var(--border); border-radius: 9
   .header-controls .label { display: none; }
   .hide-sm { display: none; }
 }
+
+/* database page */
+.bulkbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.bulkbar select { width: auto; }
+.bulkbar .sel { font-family: var(--mono); font-size: 12px; color: var(--text2); }
+table.list td.cb, table.list th.cb { width: 34px; }
+.pager { display: flex; gap: 6px; align-items: center; justify-content: flex-end; padding: 10px 14px; font-size: 12px; }
+.iconbtn { background: none; border: 1px solid transparent; color: var(--text2); border-radius: 6px; padding: 3px 7px; cursor: pointer; font: inherit; font-size: 12px; }
+.iconbtn:hover { color: var(--red); border-color: rgba(239, 68, 68, .4); }
+.inline { display: inline; }
+/* calendar */
+.day { margin-bottom: 12px; }
+.day.today { border-color: rgba(232, 96, 28, .6); }
+.day h3 .count { color: var(--text2); }
+.calrow { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.calrow:last-child { border-bottom: 0; }
+.calrow img, .calrow .noimg { width: 26px; height: 39px; object-fit: cover; border-radius: 3px; background: var(--surf2); flex: none; }
+.calrow .ttl { flex: 1; min-width: 0; color: var(--text); }

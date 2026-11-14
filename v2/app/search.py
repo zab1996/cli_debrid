@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 
-from . import config, scrapers
+from . import blacklist, config, scrapers
 from .db import DB
 from .models import Item
 from .ranking import Query, Release
@@ -75,8 +76,11 @@ def plan(db: DB, items: list[Item]) -> list[Job]:
             jobs.append(Job(query_for(db, it), [it]))
         else:
             by_season.setdefault((it.tmdb_id, it.season), []).append(it)
+    # Season packs only come from debrid torrents (usenet packs are never used),
+    # so without a debrid service a pack search would be wasted indexer calls.
+    packs_ok = bool(config.get().debrid.provider and config.get().debrid.api_key)
     for (tmdb_id, season), eps in by_season.items():
-        if len(eps) >= 2:
+        if packs_ok and len(eps) >= 2:
             q = query_for(db, eps[0])
             q.kind = "season"
             q.episode = None
@@ -84,23 +88,36 @@ def plan(db: DB, items: list[Item]) -> list[Job]:
             q.episode_count = season_episode_count(db, tmdb_id, season)
             jobs.append(Job(q, eps))
         else:
-            jobs.append(Job(query_for(db, eps[0]), eps))
+            jobs.extend(Job(query_for(db, it), [it]) for it in eps)
     return jobs
 
 
 def tried_keys(db: DB, items: list[Item]) -> set[str]:
+    """Releases to skip: failed/replaced for these items, plus the global release blacklist."""
+    blocked = blacklist.release_keys(db)
     if not items:
-        return set()
+        return blocked
     marks = ",".join("?" * len(items))
     rows = db.query(f"SELECT DISTINCT release_key FROM releases_tried WHERE item_id IN ({marks})"
                     " AND outcome != 'picked'", tuple(i.id for i in items))
-    return {r["release_key"] for r in rows}
+    return {r["release_key"] for r in rows} | blocked
+
+
+def job_tag(job: Job) -> str:
+    if len(job.items) == 1:
+        return job.items[0].tag
+    return f"[items {','.join(str(i.id) for i in job.items)} {job.label}]"
 
 
 async def run(db: DB, job: Job) -> list[Release]:
     raw = await scrapers.search_all(job.query)
     job.results = rank(raw, job.query, config.get().quality, tried_keys(db, job.items))
-    log.info("%s: %d results, %d acceptable", job.label, len(raw), len(job.results))
+    reasons = Counter(r.reject.split(" (")[0] for r in raw if r.reject)
+    log.info("%s %d results, %d acceptable; rejected: %s", job_tag(job), len(raw), len(job.results),
+             ", ".join(f"{k}={v}" for k, v in reasons.most_common(8)) or "none")
+    for n, r in enumerate(job.results[:3], 1):
+        log.info("%s   #%d score %.1f %s %.1fGB %s%s: %s", job_tag(job), n, r.score, r.protocol,
+                 r.size_gb, r.indexer, " cached" if r.cached else "", r.title)
     return job.results
 
 

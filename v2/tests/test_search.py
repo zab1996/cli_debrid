@@ -7,7 +7,11 @@ def _ep(db, s, e, tmdb=1396):
                        imdb_id="tt0903747")
 
 
-def test_plan_groups_seasons(db):
+def test_plan_groups_seasons(db, monkeypatch):
+    from app import config
+    cfg = config.Config()
+    cfg.debrid.provider, cfg.debrid.api_key = "realdebrid", "k"
+    monkeypatch.setattr(config, "_current", cfg)
     m = db.add_item(kind="movie", tmdb_id=603, title="The Matrix", year=1999)
     a, b, c = _ep(db, 1, 1), _ep(db, 1, 2), _ep(db, 2, 1)
     _ep(db, 1, 3)  # exists but not passed in -> still counts toward pack size
@@ -27,3 +31,8 @@ def test_tried_keys_excludes_failed_only(db):
         c.execute("INSERT INTO releases_tried VALUES (?,?,?,?,?,?)", (i, "bbb", "y", 1, "picked", 0))
     assert search.tried_keys(db, [db.get_item(i)]) == {"aaa"}
     assert db.get_item(i).state is State.WANTED
+
+
+def test_no_pack_search_without_debrid(db):
+    items = [db.get_item(_ep(db, 1, e)) for e in (1, 2, 3)]
+    assert [j.query.kind for j in search.plan(db, items)] == ["episode"] * 3

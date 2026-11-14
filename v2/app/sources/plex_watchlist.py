@@ -62,8 +62,6 @@ async def fetch(db: DB, s: SourceConfig) -> list[Request]:
                                   m.get("title", ""))
             if r:
                 out.append(r)
-            else:
-                log.info("watchlist: no ids for %s", m.get("title"))
         start += len(meta)
         if not meta or start >= int(mc.get("totalSize", 0) or 0):
             break

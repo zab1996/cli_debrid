@@ -14,7 +14,7 @@
   <h3>Shows <span class="count">{{ shows | length }}</span></h3>
   {% if shows %}
   <table class="list">
-    <tr><th></th><th>Title</th><th>Episodes</th><th class="hide-sm">Status</th></tr>
+    <tr><th></th><th>Title</th><th>Episodes</th><th class="hide-sm">Status</th><th></th></tr>
     {% for s in shows %}
     <tr>
       <td style="width:50px">{% if s.poster %}<img class="thumb" src="{{ s.poster }}" alt="" loading="lazy">{% else %}<div class="thumb"></div>{% endif %}</td>
@@ -24,6 +24,12 @@
         {% if s.active %}<span class="tag Downloading">{{ s.active }} in progress</span>{% endif %}
         {% if s.failed %}<span class="tag Failed">{{ s.failed }} failed</span>{% endif %}
         {% if not s.active and not s.failed and s.done == s.total and s.total %}<span class="tag Done">complete</span>{% endif %}
+      </td>
+      <td style="text-align:right;white-space:nowrap">
+        <form method="post" action="/show/{{ s.tmdb_id }}/delete" class="inline" data-confirm="Delete {{ s.title }} and all its episodes?">
+          <button class="iconbtn" title="Delete">Delete</button></form>
+        <form method="post" action="/show/{{ s.tmdb_id }}/delete" class="inline" data-confirm="Delete {{ s.title }} and blacklist it so it is never added again?">
+          <input type="hidden" name="block" value="1"><button class="iconbtn" title="Delete + blacklist">+ Blacklist</button></form>
       </td>
     </tr>
     {% endfor %}
@@ -35,7 +41,7 @@
   <h3>Movies <span class="count">{{ movies | length }}</span></h3>
   {% if movies %}
   <table class="list">
-    <tr><th></th><th>Title</th><th>State</th><th class="hide-sm">Release</th></tr>
+    <tr><th></th><th>Title</th><th>State</th><th class="hide-sm">Release</th><th></th></tr>
     {% for m in movies %}
     <tr>
       <td style="width:50px">{% if m.poster %}<img class="thumb" src="{{ m.poster }}" alt="" loading="lazy">{% else %}<div class="thumb"></div>{% endif %}</td>
@@ -43,6 +49,12 @@
       <td><span class="tag {{ m.state }}">{{ m.state }}</span>
         {% if m.state == 'Waiting' and m.next_attempt_at %}<span class="muted small">{{ m.next_attempt_at | ago }}</span>{% endif %}</td>
       <td class="hide-sm mono">{{ m.release_name or '' }}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <form method="post" action="/item/{{ m.id }}/delete" class="inline" data-confirm="Delete {{ m.title }}?">
+          <button class="iconbtn" title="Delete">Delete</button></form>
+        <form method="post" action="/item/{{ m.id }}/delete_block" class="inline" data-confirm="Delete {{ m.title }} and blacklist it?">
+          <button class="iconbtn" title="Delete + blacklist">+ Blacklist</button></form>
+      </td>
     </tr>
     {% endfor %}
   </table>

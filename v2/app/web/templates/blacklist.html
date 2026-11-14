@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head"><h1>Blacklist</h1></div>
+<p class="muted small" style="margin-bottom:12px">Blacklisted titles are never added again, by lists or by hand. Blocked releases are never picked again for anything.
+  To blacklist, use "Delete + blacklist" on a title, the Database page, or "Block" on the Add page or a release.</p>
+
+<div class="box">
+  <h3>Titles <span class="count">{{ titles | length }}</span></h3>
+  {% if titles %}
+  <table class="list">
+    <tr><th>Title</th><th>Scope</th><th class="hide-sm">Why</th><th class="hide-sm">When</th><th></th></tr>
+    {% for t in titles %}
+    <tr>
+      <td>{{ t.title or t.tmdb_id }} <span class="muted small">{{ t.kind }} · tmdb {{ t.tmdb_id }}</span></td>
+      <td>{{ 'Whole ' ~ t.kind if t.season == -1 else 'Season ' ~ t.season }}</td>
+      <td class="small muted hide-sm">{{ t.reason or '' }}</td>
+      <td class="mono hide-sm">{{ t.at | ago }}</td>
+      <td style="text-align:right"><form method="post" action="/blacklist/remove" class="inline">
+        <input type="hidden" name="kind" value="{{ t.kind }}"><input type="hidden" name="tmdb_id" value="{{ t.tmdb_id }}">
+        <input type="hidden" name="season" value="{{ t.season }}"><button class="btn small">Remove</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty">No blacklisted titles.</div>{% endif %}
+</div>
+
+<div class="box">
+  <h3>Releases <span class="count">{{ releases | length }}</span></h3>
+  {% if releases %}
+  <table class="list">
+    <tr><th>Release</th><th class="hide-sm">Why</th><th class="hide-sm">When</th><th></th></tr>
+    {% for r in releases %}
+    <tr>
+      <td class="mono">{{ r.name or r.release_key }}</td>
+      <td class="small muted hide-sm">{{ r.reason or '' }}</td>
+      <td class="mono hide-sm">{{ r.at | ago }}</td>
+      <td style="text-align:right"><form method="post" action="/blacklist/release/remove" class="inline">
+        <input type="hidden" name="key" value="{{ r.release_key }}"><button class="btn small">Remove</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty">No blocked releases.</div>{% endif %}
+</div>
+{% endblock %}

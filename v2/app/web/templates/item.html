@@ -12,8 +12,10 @@
         {% if it.state.value == 'Done' %}
         <form method="post" action="/item/{{ it.id }}/replace"><button class="btn">Replace file</button></form>
         {% endif %}
-        <form method="post" action="/item/{{ it.id }}/delete" onsubmit="return confirm('Delete from the library?')">
+        <form method="post" action="/item/{{ it.id }}/delete" data-confirm="Delete from the library?">
           <button class="btn danger">Delete</button></form>
+        <form method="post" action="/item/{{ it.id }}/delete_block" data-confirm="Delete and blacklist {{ 'this movie' if it.kind == 'movie' else 'season ' ~ it.season }}?">
+          <button class="btn danger">Delete + blacklist{{ '' if it.kind == 'movie' else ' season' }}</button></form>
       </div>
     </div>
     {% if it.kind == 'episode' %}<p style="margin-bottom:12px"><a href="/show/{{ it.tmdb_id }}">← {{ it.title }}</a></p>{% endif %}
@@ -41,7 +43,10 @@
       <table class="list">
         {% for r in tried %}
         <tr><td class="mono">{{ r.name }}</td><td style="width:90px"><span class="tag {{ r.outcome }}">{{ r.outcome }}</span></td>
-          <td class="mono hide-sm" style="width:90px">{{ r.at | ago }}</td></tr>
+          <td class="mono hide-sm" style="width:90px">{{ r.at | ago }}</td>
+          <td style="width:80px;text-align:right">{% if r.release_key in blocked %}<span class="tag failed">blocked</span>{% else %}
+            <form method="post" action="/item/{{ it.id }}/block_release" class="inline" data-confirm="Never use this release again?{{ ' The current file will be replaced.' if r.outcome == 'picked' }}">
+              <input type="hidden" name="key" value="{{ r.release_key }}"><button class="iconbtn" title="Never pick this release again">Block</button></form>{% endif %}</td></tr>
         {% endfor %}
       </table>
       {% else %}<div class="empty">None yet.</div>{% endif %}

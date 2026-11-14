@@ -67,3 +67,9 @@ document.addEventListener('click', (ev) => {
 // Secrets are masked; show them while the field is being edited.
 document.addEventListener('focusin', (e) => { if (e.target.matches('input.secret')) e.target.type = 'text'; });
 document.addEventListener('focusout', (e) => { if (e.target.matches('input.secret')) e.target.type = 'password'; });
+
+// Forms with data-confirm ask first (titles are HTML-escaped by the template, never put in JS).
+document.addEventListener('submit', (e) => {
+  const msg = e.target.dataset && e.target.dataset.confirm;
+  if (msg && !confirm(msg)) e.preventDefault();
+});

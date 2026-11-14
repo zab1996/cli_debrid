@@ -14,13 +14,16 @@
       <p class="small muted">{{ r.overview[:220] }}{{ '…' if r.overview | length > 220 }}</p>
       {% if r.have %}
         <span class="tag Done">In library</span>
+      {% elif r.blocked %}
+        <span class="tag Failed">Blacklisted</span>
       {% else %}
       <form method="post" action="/add" class="row">
         <input type="hidden" name="kind" value="{{ r.kind }}">
         <input type="hidden" name="tmdb_id" value="{{ r.tmdb_id }}">
         <input type="hidden" name="q" value="{{ q }}">
         {% if r.kind == 'show' %}<input name="seasons" placeholder="All seasons (or e.g. 1,2)" class="narrow-input">{% endif %}
-        <button class="btn">Add</button>
+        <button class="btn primary">Add</button>
+        <button class="btn small" formaction="/add/block" name="title" value="{{ r.title }}" title="Never add this">Block</button>
       </form>
       {% endif %}
     </div>

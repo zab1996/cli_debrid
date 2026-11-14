@@ -55,10 +55,19 @@ def test_pages_render(client):
     assert q.status_code == 200 and "Breaking Bad" in q.text and "Failed" in q.text
     assert client.get("/settings").status_code == 200
 
+    for page in ("/database", "/database?kind=episode&state=Failed&q=Breaking", "/blacklist", "/calendar"):
+        assert client.get(page).status_code == 200, page
+    assert "Breaking Bad" in client.get("/database?state=Failed").text
+    r = client.post("/database/bulk", data={"action": "wanted", "ids": [str(eid)],
+                                            "back": "/database?state=Failed"}, follow_redirects=False)
+    assert r.status_code == 303 and "msg=" in r.headers["location"]
+    assert db.get_item(eid).state is State.WANTED
+    db.set_state(eid, State.FAILED)
     client.post(f"/item/{eid}/retry")
     assert db.get_item(eid).state is State.WANTED
-    client.post("/show/1396/delete")
+    client.post("/show/1396/delete", data={"block": "1"})
     assert db.get_item(eid) is None
+    assert "Breaking Bad" in client.get("/blacklist").text
 
 
 def test_settings_roundtrip(client):

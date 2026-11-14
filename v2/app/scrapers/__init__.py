@@ -5,6 +5,7 @@ import asyncio
 import base64
 import logging
 import re
+import time
 
 from .. import config
 from ..config import IndexerConfig
@@ -52,11 +53,27 @@ def label(idx: IndexerConfig) -> str:
 
 
 async def search_one(idx: IndexerConfig, q: Query) -> list[Release]:
+    started = time.monotonic()
     try:
-        return await asyncio.wait_for(_module(idx.type).search(idx, q), PER_INDEXER_TIMEOUT)
-    except Exception as e:
-        log.warning("%s search failed for %s: %s", label(idx), q.title, e or type(e).__name__)
+        out = await asyncio.wait_for(_module(idx.type).search(idx, q), PER_INDEXER_TIMEOUT)
+    except asyncio.TimeoutError:
+        log.warning("[indexer %s] timed out after %ds for %s", label(idx), PER_INDEXER_TIMEOUT, _qlabel(q))
         return []
+    except Exception as e:
+        log.warning("[indexer %s] search failed for %s: %s: %s", label(idx), _qlabel(q),
+                    type(e).__name__, e)
+        return []
+    log.debug("[indexer %s] %d results for %s in %.1fs", label(idx), len(out), _qlabel(q),
+              time.monotonic() - started)
+    return out
+
+
+def _qlabel(q: Query) -> str:
+    if q.kind == "movie":
+        return f"{q.title} ({q.year})"
+    if q.kind == "season":
+        return f"{q.title} S{q.season:02d} pack"
+    return f"{q.title} S{q.season:02d}E{q.episode:02d}"
 
 
 async def search_all(q: Query) -> list[Release]:
@@ -66,10 +83,17 @@ async def search_all(q: Query) -> list[Release]:
     idxs = [i for i in cfg.indexers if i.enabled]
     results = await asyncio.gather(*(search_one(i, q) for i in idxs))
     out: list[Release] = []
+    per = {label(i): len(rs) for i, rs in zip(idxs, results)}
+    log.info("searched %s: %s", _qlabel(q), ", ".join(f"{k}={v}" for k, v in per.items()) or "no indexers")
+    dropped = 0
     for rs in results:
         for r in rs:
             if r.protocol == "torrent" and want_torrents and r.info_hash:
                 out.append(r)
             elif r.protocol == "nzb" and want_nzb and r.nzb_url:
                 out.append(r)
+            else:
+                dropped += 1
+    if dropped:
+        log.debug("%d results dropped (no debrid/usenet configured for their type)", dropped)
     return out

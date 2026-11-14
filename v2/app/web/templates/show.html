@@ -7,8 +7,10 @@
       <h1>{{ show.title }} <span class="muted">{{ show.year or '' }}</span></h1>
       <div class="actions">
         <form method="post" action="/show/{{ show.tmdb_id }}/retry"><button class="btn">Retry failed</button></form>
-        <form method="post" action="/show/{{ show.tmdb_id }}/delete" onsubmit="return confirm('Delete {{ show.title }} and all its episodes from the library?')">
+        <form method="post" action="/show/{{ show.tmdb_id }}/delete" data-confirm="Delete {{ show.title }} and all its episodes from the library?">
           <button class="btn danger">Delete show</button></form>
+        <form method="post" action="/show/{{ show.tmdb_id }}/delete" data-confirm="Delete {{ show.title }} and blacklist it so it is never added again?">
+          <input type="hidden" name="block" value="1"><button class="btn danger">Delete + blacklist</button></form>
       </div>
     </div>
     <p class="muted small" style="margin-bottom:12px">{{ show.status or '' }}{% if show.seasons %} · seasons {{ show.seasons }}{% endif %} · added from {{ show.source or 'manual' }}</p>
@@ -17,6 +19,12 @@
     {% set done = eps | selectattr('state', 'eq', 'Done') | list | length %}
     <details class="queue" {{ 'open' if loop.last or done < eps | length }}>
       <summary>Season {{ season }} <span class="qcount">{{ done }}/{{ eps | length }}</span></summary>
+      <div class="bulkbar">
+        <form method="post" action="/show/{{ show.tmdb_id }}/season/{{ season }}/delete" class="inline" data-confirm="Delete season {{ season }}?">
+          <button class="btn small danger">Delete season</button></form>
+        <form method="post" action="/show/{{ show.tmdb_id }}/season/{{ season }}/delete" class="inline" data-confirm="Delete season {{ season }} and blacklist it?">
+          <input type="hidden" name="block" value="1"><button class="btn small danger">Delete + blacklist season</button></form>
+      </div>
       <table class="list">
         {% for e in eps %}
         <tr>
@@ -24,6 +32,8 @@
           <td style="width:130px"><span class="tag {{ e.state }}">{{ e.state }}</span></td>
           <td class="mono hide-sm">{{ e.release_name or '' }}</td>
           <td class="mono" style="width:110px">{% if e.state == 'Waiting' and e.next_attempt_at %}{{ e.next_attempt_at | ago }}{% else %}{{ e.release_date or '' }}{% endif %}</td>
+          <td style="width:70px;text-align:right"><form method="post" action="/item/{{ e.id }}/delete" class="inline" data-confirm="Delete this episode?">
+            <button class="iconbtn" title="Delete">Delete</button></form></td>
         </tr>
         {% endfor %}
       </table>

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head"><h1>Database</h1><span class="muted small">{{ total }} items</span></div>
+{% if msg %}<div class="notice ok">{{ msg | capitalize }}</div>{% endif %}
+<form class="filters" method="get">
+  <input name="q" value="{{ args.q }}" placeholder="Title, release name, IMDb or TMDB id">
+  <select name="kind">
+    <option value="">Movies + episodes</option>
+    <option value="movie" {{ 'selected' if args.kind == 'movie' }}>Movies</option>
+    <option value="episode" {{ 'selected' if args.kind == 'episode' }}>Episodes</option>
+  </select>
+  <select name="state">
+    <option value="">All states</option>
+    {% for s in states %}<option {{ 'selected' if s == args.state }}>{{ s }}</option>{% endfor %}
+  </select>
+  <select name="source">
+    <option value="">All sources</option>
+    {% for s in sources %}<option {{ 'selected' if s == args.source }}>{{ s }}</option>{% endfor %}
+  </select>
+  <select name="sort">
+    {% for s in sorts %}<option value="{{ s }}" {{ 'selected' if s == args.sort }}>Sort: {{ s }}</option>{% endfor %}
+  </select>
+  <button class="btn">Apply</button>
+</form>
+
+<form method="post" action="/database/bulk" class="box" id="bulkForm">
+  <input type="hidden" name="back" value="/database?{{ qs }}{{ '&' if qs }}page={{ page }}">
+  <div class="bulkbar">
+    <span class="sel" id="selCount">0 selected</span>
+    <select name="action" required>
+      <option value="">Action…</option>
+      <option value="retry">Search now (Failed / Waiting)</option>
+      <option value="wanted">Move to Wanted</option>
+      <option value="replace">Replace file (Done)</option>
+      <option value="delete">Delete</option>
+      <option value="delete_block">Delete + blacklist</option>
+    </select>
+    <button class="btn" onclick="return confirmBulk()">Apply to selected</button>
+  </div>
+  {% if rows %}
+  <table class="list">
+    <tr><th class="cb"><input type="checkbox" id="selAll" aria-label="Select all"></th>
+      <th>Title</th><th>State</th><th class="hide-sm">Release date</th><th class="hide-sm">Release</th>
+      <th class="hide-sm">Source</th><th class="hide-sm">Added</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td class="cb"><input type="checkbox" name="ids" value="{{ r.id }}"></td>
+      <td><a href="/item/{{ r.id }}">{{ r.title }}{% if r.kind == 'episode' %} S{{ '%02d' % r.season }}E{{ '%02d' % r.episode }}{% elif r.year %} ({{ r.year }}){% endif %}</a></td>
+      <td><span class="tag {{ r.state }}">{{ r.state }}</span>{% if r.mode %} <span class="muted small">{{ r.mode }}</span>{% endif %}</td>
+      <td class="mono hide-sm">{{ r.release_date or '' }}</td>
+      <td class="mono hide-sm">{{ r.release_name or '' }}</td>
+      <td class="small muted hide-sm">{{ r.source or 'manual' }}</td>
+      <td class="mono hide-sm">{{ r.added_at | ymd }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="pager">
+    {% if page > 1 %}<a class="btn small" href="/database?{{ qs }}{{ '&' if qs }}page={{ page - 1 }}">← Prev</a>{% endif %}
+    <span class="muted">Page {{ page }} / {{ pages }}</span>
+    {% if page < pages %}<a class="btn small" href="/database?{{ qs }}{{ '&' if qs }}page={{ page + 1 }}">Next →</a>{% endif %}
+  </div>
+  {% else %}<div class="empty">No items match.</div>{% endif %}
+</form>
+<script>
+  const boxes = () => [...document.querySelectorAll('input[name=ids]')];
+  const count = () => { document.getElementById('selCount').textContent = boxes().filter(b => b.checked).length + ' selected'; };
+  document.getElementById('selAll')?.addEventListener('change', (e) => { boxes().forEach(b => b.checked = e.target.checked); count(); });
+  document.addEventListener('change', (e) => { if (e.target.name === 'ids') count(); });
+  function confirmBulk() {
+    const n = boxes().filter(b => b.checked).length;
+    const a = document.querySelector('select[name=action]').value;
+    if (!n) { alert('Select some items first'); return false; }
+    if (a.startsWith('delete')) return confirm(`${a === 'delete' ? 'Delete' : 'Delete and blacklist'} ${n} item(s)?`);
+    return true;
+  }
+</script>
+{% endblock %}

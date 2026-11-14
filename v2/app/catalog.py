@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from . import config
+from . import blacklist, config
 from .db import DB
 from .metadata import cache, tmdb, tvdb
 from .models import State
@@ -45,7 +45,16 @@ def initial_state(release_date: str | None, kind: str) -> tuple[State, float | N
     return State.WANTED, None
 
 
+class Blacklisted(Exception):
+    pass
+
+
 async def add_movie(db: DB, tmdb_id: int, source: str = "manual") -> int | None:
+    if blacklist.is_blocked(db, "movie", tmdb_id):
+        log.info("[movie tmdb %s] not added: blacklisted (source %s)", tmdb_id, source)
+        if source == "manual":
+            raise Blacklisted("This movie is blacklisted")
+        return None
     m = await tmdb.movie(db, tmdb_id)
     state, nxt = initial_state(m["release_date"], "movie")
     item_id = db.add_item(kind="movie", tmdb_id=tmdb_id, imdb_id=m["imdb_id"], title=m["title"],
@@ -53,6 +62,15 @@ async def add_movie(db: DB, tmdb_id: int, source: str = "manual") -> int | None:
                           state=state, next_attempt_at=nxt, poster=m.get("poster"))
     if item_id:
         db.log_event(f"Added movie {m['title']} ({m['year']})", item_id)
+        log.info("[item %s %s (%s)] added movie: tmdb %s imdb %s, home release %s -> %s%s, source %s",
+                 item_id, m["title"], m["year"], tmdb_id, m["imdb_id"], m["release_date"] or "unknown",
+                 state.value, f" until {time.strftime('%Y-%m-%d %H:%M', time.localtime(nxt))}" if nxt else "",
+                 source)
+        if not m["imdb_id"]:
+            log.warning("[item %s %s] has no IMDb id: Torrentio and IMDb-based indexer searches "
+                        "will find nothing", item_id, m["title"])
+    else:
+        log.info("[movie tmdb %s %s] already in the library (source %s)", tmdb_id, m["title"], source)
     return item_id
 
 
@@ -63,17 +81,33 @@ async def _episodes_for(db: DB, info: dict) -> dict[str, list[dict]]:
             eps = await tvdb.episodes(db, int(info["tvdb_id"]))
             if eps:
                 return eps
+            log.info("[show tmdb %s %s] TVDB returned no episodes; using TMDB",
+                     info["tmdb_id"], info["title"])
         except Exception as e:
-            log.warning("TVDB episodes failed for %s, using TMDB: %s", info["title"], e)
+            log.warning("[show tmdb %s %s] TVDB episodes failed, using TMDB: %s",
+                        info["tmdb_id"], info["title"], e)
     return info["seasons"]
 
 
 async def add_show(db: DB, tmdb_id: int, seasons: list[int] | None = None,
                    source: str = "manual") -> int:
     """Request a show (all seasons, or only `seasons`). Returns episodes added."""
+    if blacklist.is_blocked(db, "show", tmdb_id):
+        log.info("[show tmdb %s] not added: blacklisted (source %s)", tmdb_id, source)
+        if source == "manual":
+            raise Blacklisted("This show is blacklisted")
+        return 0
     info = await tmdb.show(db, tmdb_id)
     now = time.time()
     with db.tx() as c:
+        if source == "manual":
+            # Adding by hand means "I want it": bring back episodes deleted earlier.
+            if seasons:
+                marks = ",".join("?" * len(seasons))
+                c.execute(f"DELETE FROM skipped_episodes WHERE tmdb_id=? AND season IN ({marks})",
+                          (tmdb_id, *seasons))
+            else:
+                c.execute("DELETE FROM skipped_episodes WHERE tmdb_id=?", (tmdb_id,))
         row = c.execute("SELECT seasons FROM shows WHERE tmdb_id=?", (tmdb_id,)).fetchone()
         if row is None:
             c.execute(
@@ -90,6 +124,9 @@ async def add_show(db: DB, tmdb_id: int, seasons: list[int] | None = None,
             c.execute("UPDATE shows SET seasons=? WHERE tmdb_id=?",
                       (json.dumps(merged) if merged else None, tmdb_id))
     added = await sync_show(db, tmdb_id)
+    log.info("[show tmdb %s %s] requested %s from %s: %d new episodes (tvdb %s, imdb %s)",
+             tmdb_id, info["title"], f"seasons {seasons}" if seasons else "all seasons", source,
+             added, info["tvdb_id"], info["imdb_id"])
     if added:
         db.log_event(f"Added {info['title']}: {added} episodes")
     return added
@@ -105,11 +142,20 @@ async def sync_show(db: DB, tmdb_id: int) -> int:
     info = await tmdb.show(db, tmdb_id)
     episodes = await _episodes_for(db, info)
     added = 0
+    skipped_blocked = skipped_deleted = 0
     for sn_str, eps in episodes.items():
         sn = int(sn_str)
         if sn <= 0 or (wanted_seasons is not None and sn not in wanted_seasons):
             continue
+        if blacklist.is_blocked(db, "show", tmdb_id, sn):
+            skipped_blocked += len(eps)
+            continue
+        skipped = {r["episode"] for r in db.query(
+            "SELECT episode FROM skipped_episodes WHERE tmdb_id=? AND season=?", (tmdb_id, sn))}
         for e in eps:
+            if e["episode"] in skipped:
+                skipped_deleted += 1
+                continue
             state, nxt = initial_state(e.get("air_date"), "episode")
             new_id = db.add_item(
                 kind="episode", tmdb_id=tmdb_id, tvdb_id=info["tvdb_id"], imdb_id=info["imdb_id"],
@@ -124,6 +170,10 @@ async def sync_show(db: DB, tmdb_id: int) -> int:
     with db.tx() as c:
         c.execute("UPDATE shows SET refreshed_at=?, status=? WHERE tmdb_id=?",
                   (time.time(), info["status"], tmdb_id))
+    if added or skipped_blocked or skipped_deleted:
+        log.info("[show tmdb %s %s] sync: %d added, %d skipped (blacklisted season), "
+                 "%d skipped (deleted by you)", tmdb_id, info["title"], added, skipped_blocked,
+                 skipped_deleted)
     return added
 
 

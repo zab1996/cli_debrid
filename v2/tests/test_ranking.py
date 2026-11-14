@@ -112,3 +112,21 @@ def test_cached_beats_uncached():
     b = R("The.Matrix.1999.1080p.WEBRip", size=2, h="b")
     b.cached = True
     assert rank([a, b], MOVIE, P1080)[0].info_hash == "b"
+
+
+@pytest.mark.parametrize("title,q,reason", [
+    ("Breaking.Bad.S01E02.1080p.WEB-DL", EP, ""),
+    ("Breaking.Bad.S01E01E02.1080p.WEB-DL", EP, ""),
+    ("Breaking.Bad.S01.1080p.BluRay.x264", EP, "usenet pack"),
+    ("Breaking.Bad.S01-S05.COMPLETE.1080p.BluRay", EP, "usenet pack"),
+    ("Breaking.Bad.S01.1080p.BluRay.x264", SEASON, "usenet pack"),
+    ("[Erai-raws] Jujutsu Kaisen - 01 ~ 24 [1080p]",
+     Query(kind="episode", title="Jujutsu Kaisen", season=1, episode=5), "usenet pack"),
+    ("The.Matrix.1999.1080p.BluRay.x264", MOVIE, ""),
+])
+def test_no_usenet_packs(title, q, reason):
+    r = Release(title=title, protocol="nzb", indexer="n", size_gb=2, nzb_url="u", guid=title)
+    assert check(r, q, P1080) == reason
+    # The same packs are fine as debrid torrents.
+    if reason:
+        assert check(R(title), q, P1080) in ("", "partial pack")

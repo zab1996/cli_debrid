@@ -111,6 +111,35 @@ CREATE TABLE IF NOT EXISTS plex_reports (
     at         REAL NOT NULL
 );
 
+-- Titles that must never be added again (by lists or by hand).
+-- season NULL = the whole movie/show; season N = just that season of a show.
+CREATE TABLE IF NOT EXISTS blacklist (
+    kind     TEXT NOT NULL,        -- movie | show
+    tmdb_id  INTEGER NOT NULL,
+    season   INTEGER NOT NULL DEFAULT -1,   -- -1 = whole title
+    title    TEXT,
+    reason   TEXT,
+    at       REAL NOT NULL,
+    PRIMARY KEY (kind, tmdb_id, season)
+);
+
+-- Releases that must never be picked again, for anything.
+CREATE TABLE IF NOT EXISTS release_blacklist (
+    release_key TEXT PRIMARY KEY,
+    name        TEXT,
+    reason      TEXT,
+    at          REAL NOT NULL
+);
+
+-- Episodes the user deleted from a show they still follow: the daily show
+-- refresh must not add them back. Cleared when the show is added again by hand.
+CREATE TABLE IF NOT EXISTS skipped_episodes (
+    tmdb_id INTEGER NOT NULL,
+    season  INTEGER NOT NULL,
+    episode INTEGER NOT NULL,
+    PRIMARY KEY (tmdb_id, season, episode)
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

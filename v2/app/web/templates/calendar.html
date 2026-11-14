@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head">
+  <h1>Calendar</h1>
+  <form method="get" class="filters" style="margin:0">
+    <select name="days" onchange="this.form.submit()">
+      {% for d in (14, 30, 60, 120) %}<option value="{{ d }}" {{ 'selected' if d == days }}>Next {{ d }} days</option>{% endfor %}
+    </select>
+  </form>
+</div>
+{% if by_day %}
+{% for day, entries in by_day.items() %}
+<div class="box day {{ 'today' if day == today }}">
+  <h3>{{ 'Today · ' if day == today }}{{ day }} <span class="count">{{ entries | length }}</span></h3>
+  {% for e in entries %}
+  <div class="calrow">
+    {% if e.poster %}<img src="{{ e.poster }}" alt="" loading="lazy">{% else %}<div class="noimg"></div>{% endif %}
+    <a class="ttl" href="/item/{{ e.id }}">{{ e.title }}{% if e.kind == 'episode' %} S{{ '%02d' % e.season }}E{{ '%02d' % e.episode }}{% else %} ({{ e.year }}) · movie{% endif %}</a>
+    <span class="tag {{ e.state }}">{{ e.state }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% else %}<div class="box"><div class="empty">Nothing in this window.</div></div>{% endif %}
+{% endblock %}

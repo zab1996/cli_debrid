@@ -24,7 +24,7 @@
 
 <div class="grid3">
   <div class="box">
-    <h3>Recently Aired <span class="count">7 days</span></h3>
+    <h3>Recently Aired <a class="link" href="/calendar">Calendar →</a></h3>
     {% if aired %}
     <ul class="rows">
       {% for e in aired %}
@@ -35,30 +35,30 @@
     {% else %}<div class="empty">No episodes aired this week.</div>{% endif %}
   </div>
   <div class="box">
-    <h3>Upcoming <span class="count">14 days</span></h3>
-    {% if upcoming %}
+    <h3>Airing Soon <span class="count">14 days</span></h3>
+    {% if airing_soon %}
     <ul class="rows">
-      {% for u in upcoming %}
-      <li><a class="ttl" href="/item/{{ u.id }}">{{ u.title }}{% if u.kind == 'episode' %} S{{ '%02d' % u.season }}E{{ '%02d' % u.episode }}{% else %} ({{ u.year }}){% endif %}</a>
-        <span class="when">{{ u.release_date }}</span></li>
+      {% for u in airing_soon %}
+      <li><a class="ttl" href="/item/{{ u.id }}">{{ u.title }} S{{ '%02d' % u.season }}E{{ '%02d' % u.episode }}</a>
+        <span class="when{{ ' today' if u.release_date == today }}">{{ 'Today' if u.release_date == today else u.release_date }}</span></li>
       {% endfor %}
     </ul>
-    {% else %}<div class="empty">Nothing scheduled.</div>{% endif %}
+    {% else %}<div class="empty">No episodes airing soon.</div>{% endif %}
   </div>
   <div class="box">
-    <h3>Activity <a class="link" href="/logs">Logs →</a></h3>
-    {% if events %}
+    <h3>Upcoming Releases <span class="count">movies</span></h3>
+    {% if upcoming_movies %}
     <ul class="rows">
-      {% for e in events %}
-      <li>{% if e.item_id %}<a class="ttl" href="/item/{{ e.item_id }}" title="{{ e.message }}">{{ e.message }}</a>{% else %}<span class="ttl" title="{{ e.message }}">{{ e.message }}</span>{% endif %}
-        <span class="when">{{ e.at | ago }}</span></li>
+      {% for m in upcoming_movies %}
+      <li><a class="ttl" href="/item/{{ m.id }}">{{ m.title }} ({{ m.year }})</a>
+        <span class="when">{% if m.release_date <= today %}<span class="tag {{ m.state }}">{{ m.state }}</span> {% endif %}{{ m.release_date }}</span></li>
       {% endfor %}
     </ul>
-    {% else %}<div class="empty">Nothing yet. <a href="/add">Add something</a>.</div>{% endif %}
+    {% else %}<div class="empty">No upcoming movies.</div>{% endif %}
   </div>
 </div>
 
-<div class="grid2">
+<div class="grid3">
   <div class="box">
     <h3>Recently Added Movies <a class="link" href="/library">Library →</a></h3>
     {% if recent_movies %}
@@ -86,6 +86,17 @@
       {% endfor %}
     </div>
     {% else %}<div class="empty">No shows yet.</div>{% endif %}
+  </div>
+  <div class="box">
+    <h3>Activity <a class="link" href="/logs">Logs →</a></h3>
+    {% if events %}
+    <ul class="rows">
+      {% for e in events %}
+      <li>{% if e.item_id %}<a class="ttl" href="/item/{{ e.item_id }}" title="{{ e.message }}">{{ e.message }}</a>{% else %}<span class="ttl" title="{{ e.message }}">{{ e.message }}</span>{% endif %}
+        <span class="when">{{ e.at | ago }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">Nothing yet. <a href="/add">Add something</a>.</div>{% endif %}
   </div>
 </div>
 {% endblock %}
