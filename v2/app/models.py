@@ -48,6 +48,9 @@ class Item:
     attempts: int = 0
     release_name: str | None = None
     engine_id: str | None = None
+    prev_engine_id: str | None = None
+    mode: str | None = None
+    downloading_since: float | None = None
     file_path: str | None = None
     done_at: float | None = None
     source: str | None = None

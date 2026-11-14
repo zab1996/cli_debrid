@@ -1,4 +1,4 @@
-# Isolated v2 instance. Separate port and data dir from the live stack.
+# Isolated cli_debrid 2.0 instance: separate port, data dir and mount path.
 services:
   cli_debrid_v2:
     build: .
@@ -7,4 +7,14 @@ services:
       - "5060:5060"
     volumes:
       - ${CLID2_DATA_DIR:-./data}:/data
+      # Mount point shared with the host (and Plex) so the media is visible outside.
+      - ${CLID2_MOUNT_DIR:-./mnt}:/mnt/clid2:rshared
+      # Library roots for symlinks; Plex must see the same paths.
+      - ${CLID2_MEDIA_DIR:-./media}:/media
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
     restart: unless-stopped

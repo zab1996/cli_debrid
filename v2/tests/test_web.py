@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 def test_home_and_health(tmp_path):
     from app.main import create_app
-    app = create_app(db_path=str(tmp_path / "web.db"), start_worker=False)
+    app = create_app(db_path=str(tmp_path / "web.db"), start_worker=False, start_engine=False)
     with TestClient(app) as client:
         r = client.get("/health")
         assert r.status_code == 200 and r.json()["ok"] is True

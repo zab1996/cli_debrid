@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS items (
     attempts        INTEGER NOT NULL DEFAULT 0,
     release_name    TEXT,
     engine_id       TEXT,
+    prev_engine_id  TEXT,             -- old download kept until a replacement is ready
+    mode            TEXT,             -- NULL | 'upgrade' | 'replace'
+    downloading_since REAL,
     file_path       TEXT,
     source          TEXT,
     added_at        REAL NOT NULL,
@@ -88,6 +91,26 @@ CREATE TABLE IF NOT EXISTS events (
     message TEXT NOT NULL
 );
 
+-- Every (source, title) ever seen, so each is acted on only once.
+CREATE TABLE IF NOT EXISTS requests (
+    source     TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    tmdb_id    INTEGER NOT NULL,
+    title      TEXT,
+    first_seen REAL NOT NULL,
+    PRIMARY KEY (source, kind, tmdb_id)
+);
+
+-- Plex "Report issue" reports already handled (Plex has no way to resolve them).
+CREATE TABLE IF NOT EXISTS plex_reports (
+    id         TEXT PRIMARY KEY,
+    item_id    INTEGER,
+    title      TEXT,
+    status     TEXT NOT NULL,   -- replacing | no_match | ignored | seen
+    message    TEXT,
+    at         REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -96,7 +119,7 @@ CREATE TABLE IF NOT EXISTS kv (
 
 _ITEM_COLS = ("id, kind, tmdb_id, tvdb_id, imdb_id, title, year, season, episode, absolute, "
               "state, release_date, next_attempt_at, attempts, release_name, engine_id, "
-              "file_path, done_at, source")
+              "prev_engine_id, mode, downloading_since, file_path, done_at, source")
 
 
 class DB:
@@ -183,7 +206,8 @@ class DB:
 
     def set_state(self, item_id: int, state: State, **fields: Any) -> None:
         allowed = {"next_attempt_at", "attempts", "release_name", "engine_id",
-                   "file_path", "done_at", "release_date", "absolute"}
+                   "file_path", "done_at", "release_date", "absolute", "prev_engine_id",
+                   "mode", "downloading_since"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"unknown item fields: {bad}")
@@ -191,6 +215,23 @@ class DB:
         params = [state.value, time.time(), *fields.values(), item_id]
         with self.tx() as c:
             c.execute(f"UPDATE items SET {', '.join(sets)} WHERE id=?", params)
+
+    def record_release(self, item_id: int, key: str, name: str, score: float | None,
+                       outcome: str) -> None:
+        with self.tx() as c:
+            c.execute("INSERT INTO releases_tried(item_id, release_key, name, score, outcome, at)"
+                      " VALUES (?,?,?,?,?,?) ON CONFLICT(item_id, release_key) DO UPDATE SET"
+                      " outcome=excluded.outcome, at=excluded.at",
+                      (item_id, key, name, score, outcome, time.time()))
+
+    def items_by_engine(self, engine_id: str) -> list[Item]:
+        rows = self.query(f"SELECT {_ITEM_COLS} FROM items WHERE engine_id=? ORDER BY id",
+                          (engine_id,))
+        return [_row_to_item(r) for r in rows]
+
+    def engine_id_in_use(self, engine_id: str) -> bool:
+        return bool(self.query("SELECT 1 FROM items WHERE engine_id=? OR prev_engine_id=? LIMIT 1",
+                               (engine_id, engine_id)))
 
     def state_counts(self) -> dict[str, int]:
         counts = {s.value: 0 for s in State}

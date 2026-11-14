@@ -1,17 +1,14 @@
-"""Registers the pipeline steps on the worker, each with its fixed cadence.
-
-Phase 1: the steps exist and run on schedule but do nothing yet. Later
-phases fill them in (search, download, library, sources, repair).
-"""
+"""Registers the pipeline steps on the worker, each with its fixed cadence."""
 from __future__ import annotations
 
 import logging
 import time
 
-from . import catalog
+from . import acquire, catalog, sources
 from .db import DB
 from .metadata import cache
 from .models import WEEKLY, State
+from .repair import plex_issues, upgrades
 from .worker import Worker
 
 log = logging.getLogger("clid2.pipeline")
@@ -24,38 +21,38 @@ DAY = 24 * HOUR
 def register(worker: Worker, db: DB) -> None:
     @worker.every(10 * MINUTE)
     async def sync_sources() -> None:
-        pass  # phase 7
+        await sources.sync_all(db)
 
     @worker.every(0)
     async def search_wanted() -> None:
-        pass  # phase 3: Wanted -> Searching -> Downloading | Waiting
+        await acquire.search_wanted(db)
 
-    @worker.every(0)
+    @worker.every(30)
     async def check_downloads() -> None:
-        pass  # phase 5: Downloading -> Done | back to Searching
+        await acquire.check_downloads(db)
 
     @worker.every(MINUTE)
     async def wake_waiting() -> None:
         """Move Waiting items whose time has come back to Wanted, and give
         Failed items a weekly second chance."""
-        for item in db.items_in(State.WAITING, due_only=True):
+        for item in db.items_in(State.WAITING, due_only=True, limit=1000):
             db.set_state(item.id, State.WANTED, next_attempt_at=None)
         now = time.time()
-        for item in db.items_in(State.FAILED, due_only=True):
+        for item in db.items_in(State.FAILED, due_only=True, limit=1000):
             if item.next_attempt_at is None:
                 # First time seen in Failed: schedule the weekly retry.
                 db.set_state(item.id, State.FAILED, next_attempt_at=now + WEEKLY)
             else:
                 db.set_state(item.id, State.WANTED, next_attempt_at=None, attempts=0)
-                db.log_event(f"Weekly retry: {item.title}", item.id)
+                db.log_event(f"Weekly retry: {item.label}", item.id)
 
     @worker.every(MINUTE)
     async def plex_reported_issues() -> None:
-        pass  # phase 8
+        await plex_issues.process(db)
 
     @worker.every(DAY)
     async def upgrade_sweep() -> None:
-        pass  # phase 8
+        await upgrades.sweep(db)
 
     @worker.every(DAY)
     async def refresh_metadata() -> None:
